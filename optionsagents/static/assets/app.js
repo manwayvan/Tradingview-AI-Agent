@@ -141,6 +141,61 @@ function renderPositions(positions) {
   }
 }
 
+function orderForPosition(positionId) {
+  return (window._orders || []).find((o) => o.position_id === positionId);
+}
+
+function statusBadge(status) {
+  return `<span class="badge ${esc(status)}">${esc(status)}</span>`;
+}
+
+function renderOrders(orders) {
+  window._orders = orders || [];
+  const list = $("#order-list");
+  const empty = $("#orders-empty");
+  if (!list) return;
+  if (empty) empty.classList.toggle("hidden", window._orders.length > 0);
+  list.innerHTML = window._orders.map((o) => `
+    <button class="order-row" type="button" data-order="${esc(o.id)}">
+      <div class="top"><span class="ticker">${esc(o.ticker)}</span>${statusBadge(o.status)}</div>
+      <div class="meta">${esc(o.source_label)} · ${esc(o.signal)} · ${esc(o.mode)} · ${esc((o.created_at || "").slice(0, 16).replace("T", " "))}</div>
+      <div class="summary">${esc(o.trigger_summary)}</div>
+      ${o.realized_pnl != null ? `<div class="meta" style="margin-top:6px">Closed P&amp;L ${pnlHtml(o.realized_pnl)}</div>` : ""}
+    </button>`).join("");
+}
+
+function showOrderDetail(order) {
+  const sheet = $("#order-detail");
+  const body = $("#order-detail-body");
+  if (!sheet || !body || !order) return;
+  const title = $("#order-detail-title");
+  if (title) title.textContent = `${order.ticker} — ${order.source_label}`;
+  const blocks = [
+    ["Why this happened", order.teach_summary],
+    ["Trigger", order.trigger_summary],
+    ["Setup / signal", order.source_rationale],
+    ["Research context", order.decision_context],
+    ["Options plan", order.plan_rationale],
+  ].filter(([, text]) => text && String(text).trim());
+
+  body.innerHTML = `
+    <div class="detail-grid">
+      <div class="tile"><div class="label">Status</div><div class="value" style="font-size:16px">${esc(order.status)}</div></div>
+      <div class="tile"><div class="label">Source</div><div class="value" style="font-size:16px">${esc(order.source_label)}</div></div>
+      <div class="tile"><div class="label">Signal</div><div class="value" style="font-size:16px">${esc(order.signal)} / ${esc(order.mode)}</div></div>
+      <div class="tile"><div class="label">Risk</div><div class="value" style="font-size:16px">${order.max_risk != null ? fmtUsd(order.max_risk) : "–"}</div></div>
+    </div>
+    ${blocks.map(([h, t]) => `
+      <div class="detail-block"><h3>${esc(h)}</h3><p>${esc(t)}</p></div>`).join("")}
+    ${order.warnings?.length ? `<div class="detail-block"><h3>Notes</h3><p>${order.warnings.map((w) => esc(w)).join("<br>")}</p></div>` : ""}
+    ${order.exit_reason ? `<div class="detail-block"><h3>Exit</h3><p>Closed via ${esc(order.exit_reason)}${order.realized_pnl != null ? ` · P&amp;L ${fmtUsd(order.realized_pnl)}` : ""}</p></div>` : ""}`;
+  sheet.classList.remove("hidden");
+}
+
+function closeOrderDetail() {
+  $("#order-detail")?.classList.add("hidden");
+}
+
 function renderStrategies(engine) {
   const strats = engine?.strategies || [];
   const empty = $("#strat-empty");
@@ -317,6 +372,7 @@ async function refreshApp() {
   const s = await api("/api/state");
   window._state = s;
   renderPositions(s.positions);
+  renderOrders(s.orders);
   renderTiles(s.account);
   renderStrategies(s.engine);
   renderSignals(s.free_signals);
@@ -370,6 +426,13 @@ async function initApp() {
 
 function bindAppEvents() {
   $$(".nav-btn").forEach((btn) => btn.addEventListener("click", () => showPanel(btn.dataset.nav)));
+  document.body.addEventListener("click", (e) => {
+    const navLink = e.target.closest("[data-nav-link]");
+    if (navLink) {
+      e.preventDefault();
+      showPanel(navLink.dataset.navLink);
+    }
+  });
 
   $("#add-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -396,6 +459,28 @@ function bindAppEvents() {
   });
 
   document.body.addEventListener("click", async (e) => {
+    const orderBtn = e.target.closest("[data-order]");
+    if (orderBtn) {
+      const id = orderBtn.dataset.order;
+      const local = (window._orders || []).find((o) => o.id === id);
+      if (local) {
+        showOrderDetail(local);
+        return;
+      }
+      try {
+        const r = await api(`/api/orders/${id}`);
+        showOrderDetail(r.order);
+      } catch (ex) {
+        toast(ex.message);
+      }
+      return;
+    }
+    const closeOrder = e.target.closest("[data-close-order]");
+    if (closeOrder) {
+      closeOrderDetail();
+      return;
+    }
+
     const t = e.target.closest("[data-close],[data-run],[data-toggle],[data-del]");
     if (!t) return;
     if (t.dataset.close && confirm("Close at current mid?")) {

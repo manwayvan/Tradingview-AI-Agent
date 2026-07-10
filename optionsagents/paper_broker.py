@@ -15,11 +15,18 @@ import logging
 import os
 import threading
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
 from optionsagents.chain import ChainSnapshot, plan_mid_price
-from optionsagents.schemas import LegAction, OptionsTradePlan, StrategyType
+from optionsagents.orders import (
+    OrderContext,
+    TradeOrder,
+    build_teach_summary,
+    build_trigger_summary,
+    order_from_position,
+)
+from optionsagents.schemas import OptionsTradePlan, StrategyType
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +84,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _order_from_dict(raw: dict) -> TradeOrder:
+    return TradeOrder(**{k: v for k, v in raw.items() if k in TradeOrder.__dataclass_fields__})
+
+
+def _backfill_orders(state: dict) -> list[TradeOrder]:
+    """Ensure every position has a linked order record."""
+    orders: list[TradeOrder] = list(state.get("orders") or [])
+    by_position = {o.position_id: o for o in orders if o.position_id}
+    for pos in state["positions"]:
+        if pos.id not in by_position:
+            orders.insert(0, order_from_position(pos))
+    return orders
+
+
 class PaperBroker:
     """JSON-file-backed paper account."""
 
@@ -105,18 +126,25 @@ class PaperBroker:
                 Position(**{**p, "legs": [LegFill(**leg) for leg in p["legs"]]})
                 for p in state["positions"]
             ]
+            if "orders" not in state:
+                state["orders"] = []
+            else:
+                state["orders"] = [_order_from_dict(o) for o in state["orders"]]
+            state["orders"] = _backfill_orders(state)
             return state
         return {
             "cash": starting_cash,
             "starting_cash": starting_cash,
             "positions": [],
             "journal": [],
+            "orders": [],
         }
 
     def _save(self) -> None:
         os.makedirs(os.path.dirname(os.path.abspath(self.account_file)), exist_ok=True)
         state = dict(self._state)
         state["positions"] = [asdict(p) for p in self._state["positions"]]
+        state["orders"] = [o.to_dict() for o in self._state.get("orders", [])]
         tmp = self.account_file + ".tmp"
         with open(tmp, "w") as f:
             json.dump(state, f, indent=2)
@@ -171,20 +199,110 @@ class PaperBroker:
                 total += (width_risk - net) * OPTION_MULTIPLIER * p.contracts
         return total
 
+    def get_order(self, order_id: str) -> TradeOrder | None:
+        for o in self._state.get("orders", []):
+            if o.id == order_id or (order_id.startswith("legacy-") and o.id == order_id):
+                return o
+            if o.position_id and (o.position_id == order_id or o.position_id.startswith(order_id)):
+                return o
+        return None
+
+    def list_orders(self, limit: int = 100) -> list[TradeOrder]:
+        orders = list(self._state.get("orders", []))
+        return list(reversed(orders[-limit:]))
+
+    def record_order(
+        self,
+        ctx: OrderContext,
+        *,
+        status: str,
+        plan_rationale: str = "",
+        strategy: str | None = None,
+        confidence: float | None = None,
+        warnings: list[str] | None = None,
+        position_id: str | None = None,
+        max_risk: float | None = None,
+        entry_net: float | None = None,
+        price_type: str | None = None,
+        filled_at: str | None = None,
+        order_id: str | None = None,
+    ) -> TradeOrder:
+        oid = order_id or uuid.uuid4().hex[:10]
+        teach = build_teach_summary(
+            ctx,
+            plan_rationale=plan_rationale,
+            strategy=strategy,
+            status=status,
+            warnings=warnings,
+        )
+        order = TradeOrder(
+            id=oid,
+            status=status,
+            created_at=_now(),
+            ticker=ctx.ticker.upper(),
+            mode=ctx.mode,
+            signal=ctx.signal,
+            direction=ctx.direction or "neutral",
+            source=ctx.source,
+            source_label=ctx.label(),
+            trigger_summary=build_trigger_summary(ctx, plan_rationale),
+            teach_summary=teach,
+            source_rationale=ctx.source_rationale,
+            decision_context=ctx.decision_context,
+            plan_rationale=plan_rationale,
+            rating=ctx.rating,
+            conviction=ctx.conviction,
+            confidence=confidence,
+            position_id=position_id,
+            strategy=strategy,
+            max_risk=max_risk,
+            entry_net=entry_net,
+            price_type=price_type,
+            filled_at=filled_at or (_now() if status in ("filled", "open") else None),
+            warnings=list(warnings or []),
+        )
+        self._state.setdefault("orders", []).append(order)
+        return order
+
+    def update_order_for_close(self, position_id: str, pos: Position) -> None:
+        for order in reversed(self._state.get("orders", [])):
+            if order.position_id == position_id:
+                order.status = "closed"
+                order.closed_at = pos.closed_at
+                order.realized_pnl = pos.realized_pnl
+                order.exit_reason = pos.exit_reason
+                break
+
     # ---- trading -----------------------------------------------------
 
     def execute_plan(
-        self, plan: OptionsTradePlan, snapshot: ChainSnapshot, mode_name: str = ""
+        self,
+        plan: OptionsTradePlan,
+        snapshot: ChainSnapshot,
+        mode_name: str = "",
+        order_ctx: OrderContext | None = None,
     ) -> Position | None:
         """Fill a validated plan at net mid +/- slippage. Returns None for no_trade."""
         with self._lock:
-            return self._execute_plan_locked(plan, snapshot, mode_name)
+            return self._execute_plan_locked(plan, snapshot, mode_name, order_ctx)
 
     def _execute_plan_locked(
-        self, plan: OptionsTradePlan, snapshot: ChainSnapshot, mode_name: str = ""
+        self,
+        plan: OptionsTradePlan,
+        snapshot: ChainSnapshot,
+        mode_name: str = "",
+        order_ctx: OrderContext | None = None,
     ) -> Position | None:
         if plan.strategy == StrategyType.NO_TRADE or not plan.legs:
             self._journal("no_trade", underlying=plan.underlying, rationale=plan.rationale)
+            if order_ctx:
+                self.record_order(
+                    order_ctx,
+                    status="skipped",
+                    plan_rationale=plan.rationale,
+                    strategy=plan.strategy.value,
+                    confidence=plan.confidence,
+                )
             self._save()
             return None
 
@@ -240,6 +358,19 @@ class PaperBroker:
         )
         self._state["cash"] -= cost
         self._state["positions"].append(pos)
+        if order_ctx:
+            self.record_order(
+                order_ctx,
+                status="open",
+                plan_rationale=plan.rationale,
+                strategy=pos.strategy,
+                confidence=plan.confidence,
+                position_id=pos.id,
+                max_risk=pos.max_risk,
+                entry_net=pos.entry_net,
+                price_type=pos.price_type,
+                filled_at=pos.opened_at,
+            )
         self._journal(
             "open", position_id=pos.id, underlying=pos.underlying,
             strategy=pos.strategy,
@@ -282,6 +413,7 @@ class PaperBroker:
         pos.realized_pnl = round(pnl, 2)
         pos.exit_reason = reason
         pos.unrealized_pnl = None
+        self.update_order_for_close(pos.id, pos)
         self._journal(
             "close", position_id=pos.id, underlying=pos.underlying,
             exit_net=exit_net, pnl=pos.realized_pnl, reason=reason,
@@ -297,6 +429,7 @@ class PaperBroker:
                     "cash": starting_cash,
                     "starting_cash": starting_cash,
                     "positions": [],
+                    "orders": [],
                     "journal": [{
                         "time": _now(),
                         "event": "account_reset",

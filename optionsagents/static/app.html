@@ -36,6 +36,7 @@
 
       <div class="card">
         <h2>Open positions</h2>
+        <p class="sub">Tap <strong>Orders</strong> in the nav for full history and why each trade was executed.</p>
         <div class="mobile-cards" id="open-cards"></div>
         <div class="desktop-table tablewrap">
           <table id="open-table">
@@ -60,6 +61,15 @@
       <div class="card">
         <h2>Activity</h2>
         <div class="feed" id="activity-feed"></div>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="orders">
+      <div class="card">
+        <h2>Order history</h2>
+        <p class="sub">Every trade the system attempted — tap any row to learn why it was executed, skipped, or closed.</p>
+        <div class="order-list" id="order-list"></div>
+        <div class="empty" id="orders-empty">No orders yet. Enable Signals or AI to start trading.</div>
       </div>
     </section>
 
@@ -97,7 +107,7 @@
       </div>
       <div class="card">
         <h2>TradingView (optional)</h2>
-        <p class="sub">Prefer chart alerts from TradingView? That requires a <strong>paid</strong> plan with webhooks. Use the <strong>TV</strong> tab to set it up — or stay on free built-in signals above.</p>
+        <p class="sub">Prefer chart alerts from TradingView? That requires a <strong>paid</strong> plan with webhooks — open the <a href="#" data-nav-link="tv">TV setup</a> page.</p>
       </div>
     </section>
 
@@ -219,12 +229,23 @@
     </section>
   </main>
 
+  <div id="order-detail" class="order-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="order-detail-title">
+    <div class="order-sheet-backdrop" data-close-order></div>
+    <div class="order-sheet-panel">
+      <div class="order-sheet-header">
+        <h2 id="order-detail-title">Order details</h2>
+        <button class="btn sm" type="button" data-close-order aria-label="Close">✕</button>
+      </div>
+      <div id="order-detail-body" class="order-sheet-body"></div>
+    </div>
+  </div>
+
   <nav class="bottom-nav" aria-label="Main">
     <button class="nav-btn active" data-nav="home" type="button"><span class="icon">🏠</span>Home</button>
+    <button class="nav-btn" data-nav="orders" type="button"><span class="icon">📜</span>Orders</button>
     <button class="nav-btn" data-nav="signals" type="button"><span class="icon">📡</span>Signals</button>
     <button class="nav-btn" data-nav="ai" type="button"><span class="icon">🤖</span>AI</button>
     <button class="nav-btn" data-nav="strategies" type="button"><span class="icon">📋</span>Plans</button>
-    <button class="nav-btn" data-nav="tv" type="button"><span class="icon">📈</span>TV</button>
     <button class="nav-btn" data-nav="account" type="button"><span class="icon">👤</span>Account</button>
   </nav>
 </div>

@@ -229,6 +229,20 @@ def run_autonomous_now(request: Request, user: User = Depends(require_user)) -> 
     return {"started": True}
 
 
+@router.get("/api/orders")
+def list_orders(request: Request, user: User = Depends(require_user), limit: int = 100) -> dict:
+    orders = _ws(user, request).broker.list_orders(limit)
+    return {"orders": [o.to_dict() for o in orders]}
+
+
+@router.get("/api/orders/{order_id}")
+def get_order(order_id: str, request: Request, user: User = Depends(require_user)) -> dict:
+    order = _ws(user, request).broker.get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    return {"order": order.to_dict()}
+
+
 @router.get("/api/account/settings")
 def account_settings(request: Request, user: User = Depends(require_user)) -> dict:
     ws = _ws(user, request)

@@ -14,6 +14,7 @@ from optionsagents.autonomous.portfolio_risk import PortfolioRiskManager
 from optionsagents.engine import Strategy, StrategyEngine
 from optionsagents.paper_broker import PaperBroker
 from optionsagents.paths import data_root
+from optionsagents.orders import OrderContext
 from optionsagents.pipeline import OptionsPipeline
 from optionsagents.risk import (
     daily_loss_cap,
@@ -137,13 +138,20 @@ class UserWorkspace:
 
     def _run_strategy(self, strat: Strategy) -> str:
         pipeline = self.get_pipeline(strat.mode)
+        ctx = OrderContext(
+            source="strategy",
+            ticker=strat.ticker,
+            mode=strat.mode,
+            signal=strat.signal,
+            source_label="Scheduled plan",
+            source_rationale=f"Automated rule: {strat.signal} {strat.ticker} ({strat.describe_schedule()})",
+            decision_context=f"Scheduled {strat.signal.upper()} on {strat.ticker} ({strat.describe_schedule()})",
+            source_ref=strat.id,
+        )
         if strat.signal in ("buy", "sell"):
-            result = pipeline.run_signal(
-                strat.ticker, strat.signal,
-                context=f"Scheduled {strat.signal.upper()} ({strat.describe_schedule()})",
-            )
+            result = pipeline.run_signal(strat.ticker, strat.signal, context=ctx.decision_context, order_ctx=ctx)
         else:
-            result = pipeline.run(strat.ticker)
+            result = pipeline.run(strat.ticker, order_ctx=ctx)
         if result.position:
             return (
                 f"opened {result.plan.strategy.value} "
@@ -157,15 +165,26 @@ class UserWorkspace:
 
     def _execute_autonomous_trade(self, directive: TradeDirective) -> str:
         pipeline = self.get_pipeline(directive.mode)
-        context = (
-            f"Autonomous AI: {directive.ticker} "
-            f"({directive.mode}/{directive.signal}, {directive.conviction:.0%}). "
-            f"{directive.rationale}"
+        ctx = OrderContext(
+            source="autonomous",
+            ticker=directive.ticker,
+            mode=directive.mode,
+            signal=directive.signal,
+            source_label="Autonomous AI",
+            source_rationale=directive.rationale,
+            decision_context=(
+                f"Autonomous AI selected {directive.ticker}: "
+                f"{directive.mode} / {directive.signal} at {directive.conviction:.0%} conviction. "
+                f"{directive.rationale}"
+            ),
+            conviction=directive.conviction,
         )
         if directive.signal in ("buy", "sell"):
-            result = pipeline.run_signal(directive.ticker, directive.signal, context=context)
+            result = pipeline.run_signal(
+                directive.ticker, directive.signal, context=ctx.decision_context, order_ctx=ctx,
+            )
         else:
-            result = pipeline.run(directive.ticker)
+            result = pipeline.run(directive.ticker, order_ctx=ctx)
         if result.position:
             return (
                 f"opened {result.plan.strategy.value} "
@@ -184,17 +203,30 @@ class UserWorkspace:
         """Process a TradingView or built-in free signal alert."""
         try:
             pipeline = self.get_pipeline(alert.mode)
-            if alert.signal in ("buy", "sell"):
-                source = "Free signal" if alert.secret == "free" else "TradingView alert"
-                context = (
-                    f"{source}: {alert.signal.upper()} {alert.ticker}"
+            is_free = alert.secret == "free"
+            source = "free_signal" if is_free else "tradingview"
+            label = "Free built-in signal" if is_free else "TradingView alert"
+            note = alert.note or ""
+            ctx = OrderContext(
+                source=source,
+                ticker=alert.ticker,
+                mode=alert.mode,
+                signal=alert.signal,
+                source_label=label,
+                source_rationale=note,
+                decision_context=(
+                    f"{label}: {alert.signal.upper()} {alert.ticker}"
                     + (f" at {alert.price}" if alert.price else "")
                     + (f" on the {alert.interval} chart" if alert.interval else "")
-                    + (f". Note: {alert.note}" if alert.note else "")
+                    + (f". {note}" if note else "")
+                ),
+            )
+            if alert.signal in ("buy", "sell"):
+                result = pipeline.run_signal(
+                    alert.ticker, alert.signal, context=ctx.decision_context, order_ctx=ctx,
                 )
-                result = pipeline.run_signal(alert.ticker, alert.signal, context)
             else:
-                result = pipeline.run(alert.ticker)
+                result = pipeline.run(alert.ticker, order_ctx=ctx)
             logger.info(
                 "user %s alert %s %s -> %s",
                 self.user.id, alert.ticker, alert.signal, result.plan.strategy.value,
@@ -262,6 +294,7 @@ class UserWorkspace:
                 ),
             },
             "positions": [asdict(p) for p in self.broker.positions()],
+            "orders": [o.to_dict() for o in self.broker.list_orders(100)],
             "journal": self.broker._state["journal"][-50:][::-1],
             "engine": self.engine.snapshot(),
             "autonomous": self.orchestrator.snapshot(broker=self.broker),

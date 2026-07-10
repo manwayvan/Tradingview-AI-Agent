@@ -24,6 +24,7 @@ from datetime import date
 
 from optionsagents.chain import ChainSnapshot, fetch_chain_snapshot, render_chain_report
 from optionsagents.modes import TradingMode, get_mode
+from optionsagents.orders import OrderContext
 from optionsagents.paper_broker import PaperBroker, Position
 from optionsagents.schemas import OptionsTradePlan, StrategyType, render_trade_plan
 from optionsagents.strategist import OptionsStrategist
@@ -131,17 +132,28 @@ class OptionsPipeline:
 
     # ---- entry points --------------------------------------------------
 
-    def run(self, ticker: str, trade_date: str | None = None) -> PipelineResult:
+    def run(
+        self,
+        ticker: str,
+        trade_date: str | None = None,
+        order_ctx: OrderContext | None = None,
+    ) -> PipelineResult:
         """Full research path: multi-agent debate -> rating -> options trade."""
         trade_date = trade_date or date.today().isoformat()
         graph = self._get_graph()
         final_state, rating = graph.propagate(ticker, trade_date)
         direction = RATING_TO_DIRECTION.get(str(rating).strip().lower(), "neutral")
         decision_context = final_state.get("final_trade_decision", "") or str(rating)
-        return self._trade(ticker, direction, decision_context, rating=str(rating))
+        if order_ctx and order_ctx.decision_context:
+            decision_context = f"{order_ctx.decision_context}\n\nResearch result:\n{decision_context}"
+        return self._trade(ticker, direction, decision_context, rating=str(rating), order_ctx=order_ctx)
 
     def run_signal(
-        self, ticker: str, signal: str, context: str = ""
+        self,
+        ticker: str,
+        signal: str,
+        context: str = "",
+        order_ctx: OrderContext | None = None,
     ) -> PipelineResult:
         """Fast path: direction comes from a TradingView alert or the CLI."""
         direction = {"buy": "bullish", "sell": "bearish"}.get(signal.lower(), "neutral")
@@ -149,12 +161,17 @@ class OptionsPipeline:
             f"External {signal.upper()} signal received for {ticker} "
             f"(TradingView alert fast path; no in-house research this round)."
         )
-        return self._trade(ticker, direction, decision_context, rating=None)
+        return self._trade(ticker, direction, decision_context, rating=None, order_ctx=order_ctx)
 
     # ---- shared execution flow ------------------------------------------
 
     def _trade(
-        self, ticker: str, direction: str, decision_context: str, rating: str | None
+        self,
+        ticker: str,
+        direction: str,
+        decision_context: str,
+        rating: str | None,
+        order_ctx: OrderContext | None = None,
     ) -> PipelineResult:
         warnings: list[str] = []
         snapshot = fetch_chain_snapshot(ticker, self.mode)
@@ -167,6 +184,13 @@ class OptionsPipeline:
                 rationale=f"No options chain available for {ticker} in the "
                           f"{self.mode.name}-mode DTE window.",
             )
+            if order_ctx:
+                self.broker.record_order(
+                    order_ctx,
+                    status="skipped",
+                    plan_rationale=plan.rationale,
+                    warnings=["no chain data"],
+                )
             return PipelineResult(
                 ticker=ticker.upper(), mode=self.mode.name, direction=direction,
                 rating=rating, plan=plan, position=None,
@@ -186,12 +210,56 @@ class OptionsPipeline:
                 warnings.append(
                     f"max open positions reached ({open_count}); trade skipped"
                 )
+                if order_ctx:
+                    self.broker.record_order(
+                        order_ctx,
+                        status="skipped",
+                        plan_rationale=plan.rationale,
+                        strategy=plan.strategy.value,
+                        confidence=plan.confidence,
+                        warnings=warnings,
+                    )
                 plan = plan.model_copy(update={"strategy": StrategyType.NO_TRADE, "legs": []})
             else:
+                ctx = order_ctx
+                if ctx is None:
+                    ctx = OrderContext(
+                        source="unknown",
+                        ticker=ticker.upper(),
+                        mode=self.mode.name,
+                        signal="analyze",
+                        direction=direction,
+                        decision_context=decision_context,
+                        rating=rating,
+                    )
+                else:
+                    ctx = OrderContext(
+                        source=ctx.source,
+                        ticker=ctx.ticker,
+                        mode=ctx.mode,
+                        signal=ctx.signal,
+                        direction=direction or ctx.direction,
+                        source_label=ctx.source_label,
+                        source_rationale=ctx.source_rationale,
+                        decision_context=decision_context,
+                        rating=rating or ctx.rating,
+                        conviction=ctx.conviction,
+                        source_ref=ctx.source_ref,
+                    )
                 try:
-                    position = self.broker.execute_plan(plan, snapshot, self.mode.name)
+                    position = self.broker.execute_plan(
+                        plan, snapshot, self.mode.name, order_ctx=ctx,
+                    )
                 except ValueError as exc:
                     warnings.append(f"paper fill failed: {exc}")
+                    self.broker.record_order(
+                        ctx,
+                        status="skipped",
+                        plan_rationale=plan.rationale,
+                        strategy=plan.strategy.value,
+                        confidence=plan.confidence,
+                        warnings=warnings,
+                    )
 
         result = PipelineResult(
             ticker=ticker.upper(), mode=self.mode.name, direction=direction,
