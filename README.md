@@ -90,6 +90,21 @@ cp .env.example .env
 
 Market and options-chain data come from yfinance by default (no key needed).
 
+## Local development (test before deploy)
+
+**You do not need Netlify (or any host) to use this app.** Run everything on your machine:
+
+```bash
+make install    # once
+make dev        # web app + hot reload at http://localhost:8000
+make test       # full test suite before you commit
+make tunnel     # HTTPS URL for TradingView webhooks (no deploy)
+```
+
+See **[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)** for the full workflow and
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for why Netlify is not suitable for this
+Python backend (and which hosts to use instead).
+
 ## Quick start: the web app (PC + mobile)
 
 ```bash

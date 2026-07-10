@@ -1,0 +1,23 @@
+services:
+  dev:
+    image: python:3.12-slim
+    working_dir: /app
+    command: >
+      bash -c "pip install -q -e '.[dev]' &&
+      uvicorn optionsagents.webhook_server:app
+      --host 0.0.0.0 --port 8000
+      --reload --reload-dir optionsagents"
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OPTIONS_PUBLIC_URL: http://localhost:${PORT:-8000}
+    volumes:
+      - .:/app
+      - dev_tradingagents_data:/root/.tradingagents
+    restart: unless-stopped
+
+volumes:
+  dev_tradingagents_data:

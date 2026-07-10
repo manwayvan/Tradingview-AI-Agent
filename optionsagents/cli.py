@@ -14,7 +14,8 @@ Examples:
     python run_options.py close <id>
 
     # Run the web GUI + strategy engine + TradingView webhook server
-    python run_options.py serve --port 8000     # open http://localhost:8000
+    python run_options.py serve --port 8000     # production-style (no reload)
+    python run_options.py dev                   # local dev with hot reload
 """
 
 from __future__ import annotations
@@ -119,6 +120,28 @@ def cmd_serve(args) -> int:
     if getattr(args, "autonomous", False):
         os.environ["AUTONOMOUS_ENABLED"] = "true"
     uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
+def cmd_dev(args) -> int:
+    """Local development server with hot reload — no deploy required."""
+    import os
+
+    import uvicorn
+
+    os.environ.setdefault("OPTIONS_ACCOUNT_FILE", args.account_file)
+    if getattr(args, "autonomous", False):
+        os.environ["AUTONOMOUS_ENABLED"] = "true"
+    if not os.environ.get("OPTIONS_PUBLIC_URL"):
+        os.environ["OPTIONS_PUBLIC_URL"] = f"http://localhost:{args.port}"
+
+    uvicorn.run(
+        "optionsagents.webhook_server:app",
+        host=args.host,
+        port=args.port,
+        reload=True,
+        reload_dirs=["optionsagents"],
+    )
     return 0
 
 
@@ -229,6 +252,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Enable the autonomous AI brain on server start (or set AUTONOMOUS_ENABLED=true)",
     )
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser(
+        "dev",
+        help="Local dev server with hot reload (test fully before git push / deploy)",
+    )
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument(
+        "--autonomous", action="store_true",
+        help="Enable autonomous AI brain on start",
+    )
+    p.set_defaults(func=cmd_dev)
 
     auto = sub.add_parser(
         "autonomous",
