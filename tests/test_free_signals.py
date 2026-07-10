@@ -62,6 +62,32 @@ def test_scan_day_signal_no_cross():
     assert scan_day_signal("SPY", fetch_bars=fetch) is None
 
 
+def test_scan_day_signal_duplicate_timestamps():
+    """yfinance occasionally returns duplicate 5m bars — must not crash VWAP."""
+    df = _make_5m_bars(30, bullish_cross=True)
+    duped = pd.concat([df, df.iloc[[-1]]])
+
+    def fetch(_ticker: str, interval: str) -> pd.DataFrame:
+        return duped
+
+    result = scan_day_signal("GOOGL", fetch_bars=fetch)
+    assert result is None or result.signal in ("buy", "sell")
+
+
+def test_normalize_bars_flattens_multiindex_columns():
+    from optionsagents.signals.technicals import _normalize_bars
+
+    idx = pd.date_range("2026-07-10 09:30", periods=5, freq="5min")
+    raw = pd.DataFrame(
+        {"Open": 100.0, "High": 101.0, "Low": 99.0, "Close": 100.5, "Volume": 1e6},
+        index=idx,
+    )
+    raw.columns = pd.MultiIndex.from_product([["GOOGL"], raw.columns])
+    norm = _normalize_bars(raw)
+    assert list(norm.columns) == ["Open", "High", "Low", "Close", "Volume"]
+    assert len(norm) == 5
+
+
 def test_scan_swing_signal_bullish_cross():
     df = _make_daily_bars(60, bullish_cross=True)
 
