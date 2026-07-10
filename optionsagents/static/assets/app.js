@@ -216,6 +216,11 @@ function renderAutonomous(auto) {
     btn.textContent = enabled ? "Pause AI brain" : "Enable AI brain";
     btn.classList.toggle("primary", !enabled);
   }
+  const runBtn = $("#btn-auto-run");
+  if (runBtn) {
+    runBtn.disabled = !!auto.cycle_running;
+    runBtn.textContent = auto.cycle_running ? "Cycle running…" : "Run cycle now";
+  }
   const risk = auto.risk || {};
   const cfg = auto.config || {};
   const tiles = $("#auto-tiles");
@@ -357,7 +362,9 @@ async function initApp() {
   }
   setInterval(refreshApp, 5000);
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    navigator.serviceWorker.register("/sw.js").then((reg) => {
+      reg.update().catch(() => {});
+    }).catch(() => {});
   }
 }
 
@@ -409,9 +416,14 @@ function bindAppEvents() {
     refreshApp();
   });
   $("#btn-auto-run")?.addEventListener("click", async () => {
-    await api("/api/autonomous/run", { method: "POST" });
-    toast("Cycle started");
-    refreshApp();
+    try {
+      await api("/api/autonomous/run", { method: "POST" });
+      toast("Cycle started");
+      refreshApp();
+    } catch (ex) {
+      toast(ex.message || "Could not start cycle");
+      refreshApp();
+    }
   });
 
   $("#btn-signals-toggle")?.addEventListener("click", async () => {
@@ -419,9 +431,13 @@ function bindAppEvents() {
     refreshApp();
   });
   $("#btn-signals-scan")?.addEventListener("click", async () => {
-    const r = await api("/api/signals/scan", { method: "POST" });
-    toast(`Scan done · day ${r.day_signals} · swing ${r.swing_signals}`);
-    refreshApp();
+    try {
+      const r = await api("/api/signals/scan", { method: "POST" });
+      toast(`Scan done · day ${r.day_signals} · swing ${r.swing_signals}`);
+      refreshApp();
+    } catch (ex) {
+      toast(ex.message || "Scan failed");
+    }
   });
   $("#watchlist-input")?.addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
   $("#watchlist-form")?.addEventListener("submit", async (e) => {

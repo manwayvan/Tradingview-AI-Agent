@@ -114,7 +114,11 @@ def manifest():
 
 @app.get("/sw.js")
 def service_worker():
-    return FileResponse(_STATIC_DIR / "sw.js", media_type="application/javascript")
+    return FileResponse(
+        _STATIC_DIR / "sw.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/index.html")
