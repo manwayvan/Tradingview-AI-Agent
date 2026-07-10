@@ -204,11 +204,12 @@ function renderAutonomous(auto) {
   const cfg = auto.config || {};
   const tiles = $("#auto-tiles");
   if (tiles) {
+    const risk = window._state?.risk;
     tiles.innerHTML = `
       <div class="tile"><div class="label">Universe</div><div class="value">${cfg.universe_size ?? "–"}</div><div class="sub">top ${cfg.scan_top_n ?? "–"}</div></div>
+      <div class="tile"><div class="label">Trade risk</div><div class="value">${fmtUsd(risk?.trade_budget_usd)}</div><div class="sub">${risk?.risk_pct_per_trade ?? "–"}% equity</div></div>
       <div class="tile"><div class="label">Cycle</div><div class="value">${cfg.cycle_interval_minutes ?? "–"}m</div><div class="sub">${auto.due ? "due" : auto.cycle_running ? "running" : "wait"}</div></div>
-      <div class="tile"><div class="label">Loss room</div><div class="value">${fmtUsd(risk.daily_loss_remaining)}</div></div>
-      <div class="tile"><div class="label">Open risk</div><div class="value">${fmtUsd(risk.total_open_risk)}</div></div>`;
+      <div class="tile"><div class="label">Loss room</div><div class="value">${fmtUsd(risk?.daily_loss_cap_usd ?? risk?.daily_loss_remaining)}</div></div>`;
   }
   const st = $("#auto-status");
   if (st) {
@@ -264,12 +265,31 @@ function renderTradingView(setup, user) {
   }
 }
 
-function renderAccount(user) {
+function renderAccount(user, risk) {
   if (!user) return;
   $("#acct-email").textContent = user.email;
   $("#acct-name").textContent = user.display_name || "—";
   $("#acct-tv").textContent = user.tradingview_username || "Not set";
   $("#acct-tv-status").textContent = user.tv_connected ? "Connected" : "Not connected";
+
+  const cashInput = $("#acct-starting-cash");
+  const riskInput = $("#acct-risk-pct");
+  const portInput = $("#acct-portfolio-pct");
+  if (cashInput && !cashInput.dataset.touched) cashInput.value = user.starting_cash ?? 100000;
+  if (riskInput && !riskInput.dataset.touched) riskInput.value = user.risk_pct_per_trade ?? 10;
+  if (portInput && !portInput.dataset.touched) portInput.value = user.max_portfolio_risk_pct ?? 50;
+
+  const tiles = $("#account-risk-tiles");
+  if (tiles && risk) {
+    tiles.innerHTML = `
+      <div class="tile"><div class="label">Per trade</div><div class="value">${fmtUsd(risk.trade_budget_usd)}</div><div class="sub">${risk.risk_pct_per_trade ?? "–"}% of equity</div></div>
+      <div class="tile"><div class="label">Portfolio cap</div><div class="value">${fmtUsd(risk.portfolio_risk_cap_usd)}</div><div class="sub">${risk.max_portfolio_risk_pct ?? "–"}% max open</div></div>
+      <div class="tile"><div class="label">Daily loss cap</div><div class="value">${fmtUsd(risk.daily_loss_cap_usd)}</div><div class="sub">kill switch</div></div>`;
+  }
+  const note = $("#acct-risk-note");
+  if (note && risk) {
+    note.textContent = `Each autonomous or signal trade risks up to ${fmtUsd(risk.trade_budget_usd)} (${risk.risk_pct_per_trade}% of your paper equity). Open positions are monitored every 5 minutes for profit target, stop loss, and expiry exits.`;
+  }
 }
 
 async function refreshApp() {
@@ -282,7 +302,7 @@ async function refreshApp() {
   window._signals = s.free_signals;
   renderAutonomous(s.autonomous);
   renderFeed(s.engine, s.journal, s.autonomous);
-  renderAccount(s.user);
+  renderAccount(s.user, s.risk);
   $("#pill-engine")?.classList.toggle("on", s.engine?.running);
   $("#pill-signals")?.classList.toggle("on", s.free_signals?.config?.enabled && s.free_signals?.running);
   $("#pill-market")?.classList.toggle("on", s.engine?.market_open);
@@ -298,7 +318,7 @@ function showPanel(name) {
   $$(".panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === name));
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.nav === name));
   if (name === "tv") refreshTradingView();
-  if (name === "account") renderAccount(window._state?.user);
+  if (name === "account") renderAccount(window._state?.user, window._state?.risk);
 }
 
 async function initApp() {
@@ -429,6 +449,35 @@ function bindAppEvents() {
   $("#btn-logout")?.addEventListener("click", async () => {
     await api("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
+  });
+
+  ["#acct-starting-cash", "#acct-risk-pct", "#acct-portfolio-pct"].forEach((sel) => {
+    $(sel)?.addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
+  });
+
+  $("#account-settings-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const resetPaper = !!f.get("reset_paper");
+    if (resetPaper && !confirm("Reset paper account to starting capital? This clears positions and history.")) return;
+    const body = {
+      starting_cash: parseFloat(f.get("starting_cash")),
+      risk_pct_per_trade: parseFloat(f.get("risk_pct_per_trade")),
+      max_portfolio_risk_pct: parseFloat(f.get("max_portfolio_risk_pct")),
+      reset_paper: resetPaper,
+      clear_history: true,
+    };
+    await api("/api/account/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    ["#acct-starting-cash", "#acct-risk-pct", "#acct-portfolio-pct"].forEach((sel) => {
+      const el = $(sel);
+      if (el) delete el.dataset.touched;
+    });
+    toast(resetPaper ? "Account reset and settings saved" : "Risk settings saved");
+    refreshApp();
   });
 }
 

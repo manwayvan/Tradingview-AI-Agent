@@ -51,6 +51,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
             tv_connected_at TEXT,
             autonomous_enabled INTEGER NOT NULL DEFAULT 0,
             starting_cash REAL NOT NULL DEFAULT 100000,
+            risk_pct_per_trade REAL NOT NULL DEFAULT 10,
+            max_portfolio_risk_pct REAL NOT NULL DEFAULT 50,
             created_at TEXT NOT NULL
         );
 
@@ -64,6 +66,21 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
         """
     )
+    conn.commit()
+    _migrate_users(conn)
+
+
+def _migrate_users(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after initial deploy without breaking old DBs."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "risk_pct_per_trade" not in cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN risk_pct_per_trade REAL NOT NULL DEFAULT 10"
+        )
+    if "max_portfolio_risk_pct" not in cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN max_portfolio_risk_pct REAL NOT NULL DEFAULT 50"
+        )
     conn.commit()
 
 

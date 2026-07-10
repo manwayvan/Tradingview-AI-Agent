@@ -131,6 +131,7 @@ class StrategyBrain:
         user = f"""{market.to_prompt_block()}
 
 Account: equity ${portfolio_summary.get('equity', 0):,.0f}, cash ${portfolio_summary.get('cash', 0):,.0f},
+risk budget ${portfolio_summary.get('trade_risk_budget_usd', 0):,.0f} per trade ({portfolio_summary.get('risk_pct_per_trade', 10):g}% of equity),
 open positions: {portfolio_summary.get('open_positions', 0)}, realized P&L ${portfolio_summary.get('realized_pnl', 0):,.0f}.
 Tickers with open exposure: {open_block}
 Max trades this cycle: {max_trades}

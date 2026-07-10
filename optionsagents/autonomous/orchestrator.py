@@ -20,6 +20,7 @@ from optionsagents.autonomous.portfolio_risk import PortfolioRiskManager
 from optionsagents.autonomous.scanner import MarketScanner, StockCandidate
 from optionsagents.engine import market_open_now
 from optionsagents.modes import get_mode
+from optionsagents.risk import mode_for_budget
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -47,6 +48,7 @@ class OrchestratorEvent:
 
 ExecuteTrade = Callable[[TradeDirective], str]
 GetBroker = Callable[[], object]
+GetTradeRiskBudget = Callable[[str], float]
 
 
 class AutonomousOrchestrator:
@@ -63,6 +65,7 @@ class AutonomousOrchestrator:
         brain: StrategyBrain | None = None,
         risk_manager: PortfolioRiskManager | None = None,
         memory_context_fn: Callable[[], str] | None = None,
+        get_trade_risk_budget: GetTradeRiskBudget | None = None,
     ):
         self.config = config or AutonomousConfig.from_env()
         self._execute_trade = execute_trade
@@ -70,6 +73,7 @@ class AutonomousOrchestrator:
         self._get_open_tickers = get_open_tickers
         self._get_broker = get_broker
         self._memory_context_fn = memory_context_fn or (lambda: "")
+        self._get_trade_risk_budget = get_trade_risk_budget
 
         self.scanner = scanner or MarketScanner(universe=self.config.universe)
         self.brain = brain or StrategyBrain()
@@ -225,7 +229,12 @@ class AutonomousOrchestrator:
                         )
                         continue
 
-                    mode = get_mode(directive.mode)
+                    mode_name = directive.mode
+                    if self._get_trade_risk_budget:
+                        budget = self._get_trade_risk_budget(mode_name)
+                        mode = mode_for_budget(mode_name, budget)
+                    else:
+                        mode = get_mode(mode_name)
                     verdict = self.risk.check_directive(
                         directive,
                         self._get_broker(),

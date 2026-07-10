@@ -289,6 +289,32 @@ class PaperBroker:
         self._save()
         return pos
 
+    def reset_account(self, starting_cash: float, *, clear_history: bool = True) -> dict:
+        """Reset paper cash to starting_cash; optionally wipe positions and journal."""
+        with self._lock:
+            if clear_history:
+                self._state = {
+                    "cash": starting_cash,
+                    "starting_cash": starting_cash,
+                    "positions": [],
+                    "journal": [{
+                        "time": _now(),
+                        "event": "account_reset",
+                        "starting_cash": starting_cash,
+                        "cleared": True,
+                    }],
+                }
+            else:
+                self._state["cash"] = starting_cash
+                self._state["starting_cash"] = starting_cash
+                self._journal(
+                    "account_reset",
+                    starting_cash=starting_cash,
+                    cleared=False,
+                )
+            self._save()
+        return self.summary()
+
     # ---- mark-to-market and exits --------------------------------------
 
     def mark_position(self, pos: Position, snapshot: ChainSnapshot) -> float | None:

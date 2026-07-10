@@ -29,10 +29,17 @@ class User:
     tv_connected_at: str | None
     autonomous_enabled: bool
     starting_cash: float
+    risk_pct_per_trade: float
+    max_portfolio_risk_pct: float
     created_at: str
 
     @classmethod
     def from_row(cls, row) -> User:
+        keys = row.keys() if hasattr(row, "keys") else []
+        risk_pct = float(row["risk_pct_per_trade"]) if "risk_pct_per_trade" in keys else 10.0
+        portfolio_pct = (
+            float(row["max_portfolio_risk_pct"]) if "max_portfolio_risk_pct" in keys else 50.0
+        )
         return cls(
             id=row["id"],
             email=row["email"],
@@ -42,6 +49,8 @@ class User:
             tv_connected_at=row["tv_connected_at"],
             autonomous_enabled=bool(row["autonomous_enabled"]),
             starting_cash=float(row["starting_cash"]),
+            risk_pct_per_trade=risk_pct,
+            max_portfolio_risk_pct=portfolio_pct,
             created_at=row["created_at"],
         )
 
@@ -56,6 +65,8 @@ class User:
             "tv_connected_at": self.tv_connected_at,
             "autonomous_enabled": self.autonomous_enabled,
             "starting_cash": self.starting_cash,
+            "risk_pct_per_trade": self.risk_pct_per_trade,
+            "max_portfolio_risk_pct": self.max_portfolio_risk_pct,
             "webhook_url": webhook_url,
             "webhook_secret_set": bool(self.webhook_secret),
         }
@@ -229,6 +240,46 @@ def set_autonomous_enabled(user_id: str, enabled: bool) -> None:
             "UPDATE users SET autonomous_enabled = ? WHERE id = ?",
             (1 if enabled else 0, user_id),
         )
+
+
+def update_account_settings(
+    user_id: str,
+    *,
+    starting_cash: float | None = None,
+    risk_pct_per_trade: float | None = None,
+    max_portfolio_risk_pct: float | None = None,
+) -> User:
+    if risk_pct_per_trade is not None and not (0.5 <= risk_pct_per_trade <= 50):
+        raise ValueError("risk_pct_per_trade must be between 0.5 and 50")
+    if max_portfolio_risk_pct is not None and not (5 <= max_portfolio_risk_pct <= 100):
+        raise ValueError("max_portfolio_risk_pct must be between 5 and 100")
+    if starting_cash is not None and starting_cash < 1000:
+        raise ValueError("starting_cash must be at least $1,000")
+
+    fields: list[str] = []
+    values: list[object] = []
+    if starting_cash is not None:
+        fields.append("starting_cash = ?")
+        values.append(starting_cash)
+    if risk_pct_per_trade is not None:
+        fields.append("risk_pct_per_trade = ?")
+        values.append(risk_pct_per_trade)
+    if max_portfolio_risk_pct is not None:
+        fields.append("max_portfolio_risk_pct = ?")
+        values.append(max_portfolio_risk_pct)
+    if not fields:
+        raise ValueError("no settings to update")
+
+    values.append(user_id)
+    with transaction() as conn:
+        conn.execute(
+            f"UPDATE users SET {', '.join(fields)} WHERE id = ?",
+            values,
+        )
+    user = get_user_by_id(user_id)
+    if user is None:
+        raise ValueError("user not found")
+    return user
 
 
 def optional_user(

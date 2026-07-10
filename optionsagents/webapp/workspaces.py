@@ -10,10 +10,17 @@ from dataclasses import asdict, replace
 from optionsagents.autonomous.brain import StrategyBrain, TradeDirective
 from optionsagents.autonomous.config import AutonomousConfig
 from optionsagents.autonomous.orchestrator import AutonomousOrchestrator
+from optionsagents.autonomous.portfolio_risk import PortfolioRiskManager
 from optionsagents.engine import Strategy, StrategyEngine
 from optionsagents.paper_broker import PaperBroker
 from optionsagents.paths import data_root
 from optionsagents.pipeline import OptionsPipeline
+from optionsagents.risk import (
+    daily_loss_cap,
+    mode_for_budget,
+    portfolio_risk_cap,
+    trade_risk_budget,
+)
 from optionsagents.schemas import TradingViewAlert
 from optionsagents.signals.free_engine import FreeSignalEngine
 from optionsagents.webapp.auth import User, set_autonomous_enabled
@@ -41,8 +48,8 @@ class UserWorkspace:
         self.free_signals_file = os.path.join(base, "free_signals.json")
 
         self.broker = PaperBroker(self.account_file, starting_cash=user.starting_cash)
-        self._pipelines: dict[str, OptionsPipeline] = {}
         self._lock = threading.RLock()
+        self._risk_manager = self._build_risk_manager()
 
         self.engine = StrategyEngine(
             run_strategy=self._run_strategy,
@@ -51,7 +58,7 @@ class UserWorkspace:
         )
         self.orchestrator = AutonomousOrchestrator(
             execute_trade=self._execute_autonomous_trade,
-            get_portfolio_summary=self.broker.summary,
+            get_portfolio_summary=self._portfolio_summary,
             get_open_tickers=self._open_tickers,
             get_broker=lambda: self.broker,
             config=AutonomousConfig.from_env().with_overrides(
@@ -60,6 +67,8 @@ class UserWorkspace:
             ),
             brain=self._build_brain(),
             memory_context_fn=self._memory_context,
+            risk_manager=self._risk_manager,
+            get_trade_risk_budget=self.trade_risk_budget,
         )
         self.free_signals = FreeSignalEngine(
             on_signal=self.handle_alert,
@@ -88,11 +97,43 @@ class UserWorkspace:
         except Exception:
             return ""
 
+    def _portfolio_summary(self) -> dict:
+        summary = self.broker.summary()
+        budget = self.trade_risk_budget()
+        summary["risk_pct_per_trade"] = self.user.risk_pct_per_trade
+        summary["trade_risk_budget_usd"] = budget
+        summary["max_portfolio_risk_pct"] = self.user.max_portfolio_risk_pct
+        return summary
+
+    def _build_risk_manager(self) -> PortfolioRiskManager:
+        summary = self.broker.summary()
+        equity = summary["equity"]
+        return PortfolioRiskManager(
+            max_daily_loss=daily_loss_cap(equity, self.user.risk_pct_per_trade),
+            max_total_open_risk=portfolio_risk_cap(
+                equity, self.user.max_portfolio_risk_pct,
+            ),
+            max_positions_per_ticker=1,
+        )
+
+    def trade_risk_budget(self, mode: str = "swing") -> float:
+        """USD max loss for the next trade from the user's risk % setting."""
+        summary = self.broker.summary()
+        return trade_risk_budget(
+            summary["equity"],
+            summary["cash"],
+            self.user.risk_pct_per_trade,
+        )
+
+    def refresh_risk_limits(self) -> None:
+        """Recompute portfolio risk caps after equity or settings change."""
+        self._risk_manager = self._build_risk_manager()
+        self.orchestrator.risk = self._risk_manager
+
     def get_pipeline(self, mode: str) -> OptionsPipeline:
-        with self._lock:
-            if mode not in self._pipelines:
-                self._pipelines[mode] = OptionsPipeline(mode=mode, broker=self.broker)
-            return self._pipelines[mode]
+        budget = self.trade_risk_budget(mode)
+        mode_obj = mode_for_budget(mode, budget)
+        return OptionsPipeline(mode=mode_obj, broker=self.broker)
 
     def _run_strategy(self, strat: Strategy) -> str:
         pipeline = self.get_pipeline(strat.mode)
@@ -182,6 +223,19 @@ class UserWorkspace:
     def refresh_user(self, user: User) -> None:
         self.user = user
         self.orchestrator.set_enabled(user.autonomous_enabled)
+        self.refresh_risk_limits()
+
+    def update_account(
+        self,
+        user: User,
+        *,
+        reset_paper: bool = False,
+        clear_history: bool = True,
+    ) -> None:
+        self.user = user
+        if reset_paper:
+            self.broker.reset_account(user.starting_cash, clear_history=clear_history)
+        self.refresh_risk_limits()
 
     def set_autonomous(self, enabled: bool) -> None:
         set_autonomous_enabled(self.user.id, enabled)
@@ -192,8 +246,21 @@ class UserWorkspace:
         return self._check_positions()
 
     def snapshot_state(self) -> dict:
+        summary = self.broker.summary()
+        budget = self.trade_risk_budget()
         return {
-            "account": self.broker.summary(),
+            "account": summary,
+            "risk": {
+                "risk_pct_per_trade": self.user.risk_pct_per_trade,
+                "max_portfolio_risk_pct": self.user.max_portfolio_risk_pct,
+                "trade_budget_usd": budget,
+                "portfolio_risk_cap_usd": portfolio_risk_cap(
+                    summary["equity"], self.user.max_portfolio_risk_pct,
+                ),
+                "daily_loss_cap_usd": daily_loss_cap(
+                    summary["equity"], self.user.risk_pct_per_trade,
+                ),
+            },
             "positions": [asdict(p) for p in self.broker.positions()],
             "journal": self.broker._state["journal"][-50:][::-1],
             "engine": self.engine.snapshot(),

@@ -22,6 +22,7 @@ from optionsagents.webapp.auth import (
     regenerate_webhook_secret,
     require_user,
     set_session_cookie,
+    update_account_settings,
     update_tradingview,
 )
 from optionsagents.webapp.tradingview import pine_script_for_user, tradingview_setup_steps
@@ -61,6 +62,14 @@ class TradingViewConnectRequest(BaseModel):
 
 class WatchlistRequest(BaseModel):
     tickers: list[str] = Field(min_length=1, max_length=50)
+
+
+class AccountSettingsRequest(BaseModel):
+    starting_cash: float | None = Field(default=None, ge=1000, le=10_000_000)
+    risk_pct_per_trade: float | None = Field(default=None, ge=0.5, le=50)
+    max_portfolio_risk_pct: float | None = Field(default=None, ge=5, le=100)
+    reset_paper: bool = False
+    clear_history: bool = True
 
 
 class StrategyRequest(BaseModel):
@@ -218,6 +227,67 @@ def run_autonomous_now(request: Request, user: User = Depends(require_user)) -> 
     if not _ws(user, request).orchestrator.run_now():
         raise HTTPException(status_code=409, detail="cycle already running")
     return {"started": True}
+
+
+@router.get("/api/account/settings")
+def account_settings(request: Request, user: User = Depends(require_user)) -> dict:
+    ws = _ws(user, request)
+    snap = ws.snapshot_state()
+    return {
+        "user": user.to_public_dict(_base_url(request)),
+        "account": snap["account"],
+        "risk": snap["risk"],
+    }
+
+
+@router.patch("/api/account/settings")
+def update_account(
+    req: AccountSettingsRequest,
+    request: Request,
+    user: User = Depends(require_user),
+) -> dict:
+    try:
+        updated = update_account_settings(
+            user.id,
+            starting_cash=req.starting_cash,
+            risk_pct_per_trade=req.risk_pct_per_trade,
+            max_portfolio_risk_pct=req.max_portfolio_risk_pct,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    ws = _ws(user, request)
+    if req.reset_paper:
+        ws.update_account(
+            updated,
+            reset_paper=True,
+            clear_history=req.clear_history,
+        )
+    else:
+        ws.refresh_user(updated)
+
+    snap = ws.snapshot_state()
+    return {
+        "user": updated.to_public_dict(_base_url(request)),
+        "account": snap["account"],
+        "risk": snap["risk"],
+    }
+
+
+@router.post("/api/account/reset")
+def reset_account(
+    request: Request,
+    user: User = Depends(require_user),
+    clear_history: bool = True,
+) -> dict:
+    ws = _ws(user, request)
+    ws.broker.reset_account(user.starting_cash, clear_history=clear_history)
+    ws.refresh_risk_limits()
+    snap = ws.snapshot_state()
+    return {
+        "account": snap["account"],
+        "risk": snap["risk"],
+    }
 
 
 @router.get("/api/signals")
