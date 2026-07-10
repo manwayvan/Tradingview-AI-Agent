@@ -1,6 +1,14 @@
 # Railway setup — after connecting GitHub
 
+Connect Railway to the **`main`** branch only.  
+Branch policy: [BRANCH_POLICY.md](./BRANCH_POLICY.md)
+
 You connected the repo. Finish these steps in the [Railway dashboard](https://railway.app/dashboard) so the app stays up and keeps user data.
+
+## 0. Source branch
+
+**Settings → Source → Branch:** `main`  
+(Root directory: `/`, Dockerfile: `Dockerfile.web`)
 
 ## 1. Confirm build settings
 

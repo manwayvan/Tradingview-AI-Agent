@@ -90,6 +90,11 @@ cp .env.example .env
 
 Market and options-chain data come from yfinance by default (no key needed).
 
+## Branch & deploy
+
+**Single branch:** `main` — Railway and all production deploys use `main` only.  
+See [docs/BRANCH_POLICY.md](docs/BRANCH_POLICY.md).
+
 ## Local development (test before deploy)
 
 **You do not need Netlify (or any host) to use this app.** Run everything on your machine:
