@@ -15,6 +15,7 @@ from optionsagents.webapp.api import router as api_router
 from optionsagents.webapp.auth import list_users
 from optionsagents.webapp.database import get_db
 from optionsagents.webapp.middleware import configure_cors
+from optionsagents.webapp.persistence import persistence_status
 
 # Re-export for CLI backward compatibility
 from optionsagents.webapp.legacy import (  # noqa: F401
@@ -37,6 +38,13 @@ def _read_html(name: str) -> str:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     get_db()
+    ps = persistence_status()
+    logger.info(
+        "data dir=%s db=%s users_on_disk=%s",
+        ps["data_dir"], ps["db_path"], ps.get("db_exists"),
+    )
+    if ps.get("warning"):
+        logger.warning("PERSISTENCE: %s", ps["warning"])
     mgr = get_workspace_manager()
     users = list_users()
     if users:
@@ -68,27 +76,35 @@ if _assets.is_dir():
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "users": len(list_users())}
+    ps = persistence_status()
+    return {
+        "status": "ok",
+        "users": len(list_users()),
+        "persistence": ps,
+    }
+
+
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
+@app.get("/app", response_class=HTMLResponse)
+def app_page():
+    return HTMLResponse(_read_html("app.html"), headers=_NO_STORE)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page():
+    return HTMLResponse(_read_html("login.html"), headers=_NO_STORE)
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page():
+    return HTMLResponse(_read_html("signup.html"), headers=_NO_STORE)
 
 
 @app.get("/")
 def root():
     return RedirectResponse(url="/app", status_code=302)
-
-
-@app.get("/app", response_class=HTMLResponse)
-def app_page():
-    return _read_html("app.html")
-
-
-@app.get("/login", response_class=HTMLResponse)
-def login_page():
-    return _read_html("login.html")
-
-
-@app.get("/signup", response_class=HTMLResponse)
-def signup_page():
-    return _read_html("signup.html")
 
 
 @app.get("/manifest.webmanifest")

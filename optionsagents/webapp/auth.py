@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import Cookie, HTTPException, Response
+from fastapi import Cookie, HTTPException, Request, Response
 
 from optionsagents.webapp.database import get_db, transaction
 
@@ -176,17 +176,43 @@ def delete_session(token: str) -> None:
 def get_user_for_session(token: str | None) -> User | None:
     if not token:
         return None
+    now = _iso(_now())
     row = get_db().execute(
         """SELECT u.* FROM users u
            JOIN sessions s ON s.user_id = u.id
            WHERE s.token = ? AND s.expires_at > ?""",
-        (token, _iso(_now())),
+        (token, now),
     ).fetchone()
-    return User.from_row(row) if row else None
+    if row is None:
+        return None
+    # Sliding expiration — keep active users signed in.
+    new_expires = _iso(_now() + timedelta(days=SESSION_DAYS))
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE sessions SET expires_at = ? WHERE token = ?",
+            (new_expires, token),
+        )
+    return User.from_row(row)
 
 
-def set_session_cookie(response: Response, token: str) -> None:
-    secure = os.environ.get("OPTIONS_COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
+def _cookie_secure(request: Request | None = None) -> bool:
+    """Honor OPTIONS_COOKIE_SECURE, else auto-detect HTTPS behind a proxy."""
+    raw = os.environ.get("OPTIONS_COOKIE_SECURE", "").strip().lower()
+    if raw in {"1", "true", "yes"}:
+        return True
+    if raw in {"0", "false", "no"}:
+        return False
+    if request is not None:
+        forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+        if forwarded == "https":
+            return True
+        if request.url.scheme == "https":
+            return True
+    return False
+
+
+def set_session_cookie(response: Response, token: str, request: Request | None = None) -> None:
+    secure = _cookie_secure(request)
     response.set_cookie(
         SESSION_COOKIE,
         token,
@@ -198,8 +224,9 @@ def set_session_cookie(response: Response, token: str) -> None:
     )
 
 
-def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE, path="/")
+def clear_session_cookie(response: Response, request: Request | None = None) -> None:
+    secure = _cookie_secure(request)
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=secure, samesite="lax")
 
 
 def update_tradingview(user_id: str, username: str, *, mark_connected: bool = False) -> User:

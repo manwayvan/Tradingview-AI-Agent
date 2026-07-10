@@ -97,7 +97,7 @@ def auth_signup(req: SignupRequest, response: Response, request: Request) -> dic
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     token = create_session(user.id)
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
     get_workspace_manager().get(user)
     return {"user": user.to_public_dict(_base_url(request)), "ok": True}
 
@@ -108,7 +108,7 @@ def auth_login(req: LoginRequest, response: Response, request: Request) -> dict:
     if user is None:
         raise HTTPException(status_code=401, detail="invalid email or password")
     token = create_session(user.id)
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, request)
     get_workspace_manager().get(user)
     return {"user": user.to_public_dict(_base_url(request)), "ok": True}
 
@@ -120,7 +120,7 @@ def auth_logout(request: Request, response: Response, user: User = Depends(requi
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         delete_session(token)
-    clear_session_cookie(response)
+    clear_session_cookie(response, request)
     return {"ok": True}
 
 

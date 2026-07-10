@@ -84,6 +84,8 @@ Each user’s **personal secret** is on the TV tab after sign-in (embedded in th
 | Health check failing | Wait 30s after start; check deploy logs for Python errors |
 | 502 / crash on start | Add LLM API key; check logs for import errors |
 | Sign-in works but data lost on redeploy | Volume at `/data` + `OPTIONS_DATA_DIR=/data` |
+| Have to create a new account every visit | Same as above — DB wiped without volume; check `/health` → `persistence.warning` |
+| Session expired but account exists | Use **Sign in** (not Sign up) with same email; sessions now slide on activity |
 | TV wizard shows `localhost` URL | Set `OPTIONS_PUBLIC_URL` to Railway HTTPS URL |
 | Lovable UI can’t call API | Set `OPTIONS_CORS_ORIGINS` to your Lovable preview URL |
 

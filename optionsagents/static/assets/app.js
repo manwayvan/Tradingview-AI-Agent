@@ -22,7 +22,11 @@ const pnlHtml = (v) => {
 async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: "same-origin", ...opts });
   if (res.status === 401 && !path.includes("/auth/")) {
-    window.location.href = "/login";
+    const onAuthPage = ["/login", "/signup"].some((p) => window.location.pathname.startsWith(p));
+    if (!onAuthPage) {
+      sessionStorage.setItem("oa_auth_redirect", "1");
+      window.location.href = "/login";
+    }
     throw new Error("sign in required");
   }
   if (!res.ok) {
@@ -53,7 +57,19 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.remove("hidden");
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add("hidden"), 2200);
+  toast._t = setTimeout(() => el.classList.add("hidden"), 4200);
+}
+
+async function checkPersistenceBanner() {
+  try {
+    const h = await fetch("/health").then((r) => r.json());
+    const warn = h.persistence?.warning;
+    const banner = $("#signals-banner");
+    if (warn && banner) {
+      banner.textContent = warn;
+      banner.classList.remove("hidden");
+    }
+  } catch (_) { /* ignore */ }
 }
 
 function legStr(legs) {
@@ -328,8 +344,13 @@ async function initApp() {
     window.location.href = "/login";
     return;
   }
+  if (sessionStorage.getItem("oa_auth_redirect")) {
+    sessionStorage.removeItem("oa_auth_redirect");
+    toast("Session expired — sign in again with your existing account");
+  }
   showPanel("home");
   await refreshApp();
+  checkPersistenceBanner();
   if (!window._tvLoaded) {
     window._tvLoaded = true;
     try { await refreshTradingView(); } catch (_) { /* optional */ }
@@ -494,11 +515,12 @@ async function initAuthPage(kind) {
       display_name: String(f.get("display_name") || "").trim(),
     };
     try {
-      await api(kind === "signup" ? "/api/auth/signup" : "/api/auth/login", {
+      const r = await api(kind === "signup" ? "/api/auth/signup" : "/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      try { localStorage.setItem("oa_last_email", body.email); } catch (_) { /* ignore */ }
       window.location.href = "/app";
     } catch (ex) {
       err.textContent = ex.message;
@@ -508,6 +530,11 @@ async function initAuthPage(kind) {
     await api("/api/auth/me");
     window.location.href = "/app";
   } catch (_) { /* stay on auth page */ }
+  try {
+    const last = localStorage.getItem("oa_last_email");
+    const email = $("#email");
+    if (last && email && !email.value) email.value = last;
+  } catch (_) { /* ignore */ }
 }
 
 window.App = { initApp, initAuthPage, bindAppEvents, api, refreshApp };
