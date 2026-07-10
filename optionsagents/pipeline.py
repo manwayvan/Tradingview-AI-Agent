@@ -90,11 +90,15 @@ class OptionsPipeline:
         starting_cash: float = 100_000.0,
         use_llm_strategist: bool = True,
         debug: bool = False,
+        broker: PaperBroker | None = None,
     ):
         self.mode = mode if isinstance(mode, TradingMode) else get_mode(mode)
         self.config = config
         self.debug = debug
-        self.broker = PaperBroker(account_file, starting_cash=starting_cash)
+        # Pass a shared broker when several pipelines (e.g. day + swing in
+        # the web server) trade one account: two PaperBroker instances on
+        # the same file would overwrite each other's state on save.
+        self.broker = broker or PaperBroker(account_file, starting_cash=starting_cash)
         self._graph = None            # TradingAgentsGraph, built lazily
         self._strategist = None
         self._use_llm_strategist = use_llm_strategist

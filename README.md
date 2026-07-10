@@ -5,8 +5,8 @@ An AI options-trading system for **day trading** and **swing trading**, built on
 (Apache-2.0). The upstream framework's analyst/researcher/risk agent teams
 produce a directional view on the underlying; this repo adds an **options
 layer** that turns that view into concrete, defined-risk option positions and
-paper-trades them, driven either from the CLI or by **TradingView alerts**
-via webhook.
+paper-trades them — driven from a **web GUI with a set-and-forget strategy
+engine**, the CLI, or **TradingView alerts** via webhook.
 
 > ⚠️ **Paper trading / research only.** Nothing here is financial advice.
 > Options can lose 100% of the premium (and defined-risk spreads their full
@@ -26,7 +26,9 @@ optionsagents/    NEW: the options trading layer
   strategist.py     LLM Options Strategist agent (structured output + fallback)
   paper_broker.py   Local paper account: mid fills, slippage, stops/targets, JSON ledger
   pipeline.py       Research -> chain -> strategist -> risk gate -> paper fill
-  webhook_server.py FastAPI server for TradingView alert webhooks
+  engine.py         Set-and-forget strategy scheduler + automatic exit management
+  webhook_server.py Web server: GUI dashboard, strategy API, TradingView webhook
+  static/index.html The dashboard GUI (self-contained, light/dark)
   cli.py            optionsagents / run_options.py command line
 pine/             TradingView Pine Script alert templates (day + swing)
 tests/            Offline unit tests for the options layer
@@ -87,7 +89,33 @@ cp .env.example .env
 
 Market and options-chain data come from yfinance by default (no key needed).
 
-## Usage
+## Quick start: the GUI (recommended)
+
+```bash
+python run_options.py serve          # then open http://localhost:8000
+```
+
+Everything happens in the dashboard:
+
+- **Set and forget.** Add a strategy — ticker, action (`analyze` = full
+  multi-agent research, or a fixed `buy`/`sell` bias), day or swing mode, and
+  a schedule (daily at a time, every N minutes during market hours, or
+  webhook-only). The background engine runs it automatically from then on.
+- **Automatic exits.** While the market is open the engine re-marks every
+  open position every 5 minutes and closes anything that hits its profit
+  target, stop loss, or expiry day — no babysitting required.
+- **Live account view.** Equity, cash, unrealized/realized P&L, win rate,
+  open and closed positions (with a one-click Close), and an activity feed
+  of everything the engine did while you were away.
+- **Survives restarts.** Strategies persist to
+  `~/.tradingagents/strategies.json` and the account to
+  `~/.tradingagents/paper_account.json`; restarting the server picks both up.
+
+A typical set-and-forget setup: add `analyze NVDA, swing, daily at 10:00`,
+plus a couple of TradingView day-signal alerts (below), then just leave the
+server running and check the dashboard in the evening.
+
+## CLI usage
 
 ```bash
 # Swing trade: full multi-agent research, then an options position on paper
@@ -109,9 +137,9 @@ python run_options.py close <positionId> # close at current mid
 tradingagents
 ```
 
-Run `python run_options.py mark` periodically while positions are open (cron
-it every few minutes during market hours for day trades) — that's what
-enforces stops, targets, and expiry closes.
+When the GUI server is running, exits are enforced automatically. If you only
+use the CLI, run `python run_options.py mark` periodically while positions
+are open — that's what enforces stops, targets, and expiry closes.
 
 ## TradingView integration (paper testing)
 
@@ -141,9 +169,16 @@ panel if you want a side-by-side comparison.
 4. Alerts now flow: day signals open paper trades within seconds; swing
    signals kick off the full research pipeline first (takes a few minutes).
 
-Server endpoints: `GET /health`, `GET /account`, `GET /positions`,
-`GET /journal`, `POST /positions/check` (mark + exits),
-`POST /positions/{id}/close`, `POST /webhook/tradingview`.
+Server endpoints: `GET /` (the GUI), `GET /api/state`,
+`POST /api/strategies` (+ `/toggle`, `/run`, `DELETE`), `GET /health`,
+`GET /account`, `GET /positions`, `GET /journal`,
+`POST /positions/check` (mark + exits), `POST /positions/{id}/close`,
+`POST /webhook/tradingview`.
+
+> The GUI and its API are unauthenticated by design (local tool). If you
+> tunnel the port for TradingView, only the `/webhook/tradingview` path is
+> secret-protected — prefer a tunnel that lets you restrict paths, or keep
+> the tunnel URL private.
 
 Alert payload shape (what the Pine templates send):
 
@@ -176,7 +211,7 @@ prefixes like `NASDAQ:NVDA` are stripped automatically.
 ```bash
 pytest tests/test_options_greeks.py tests/test_options_chain.py \
        tests/test_paper_broker.py tests/test_options_schemas.py \
-       tests/test_options_pipeline.py -q
+       tests/test_options_pipeline.py tests/test_strategy_engine.py -q
 ```
 
 All options-layer tests are offline (synthetic chains, no LLM, no network).

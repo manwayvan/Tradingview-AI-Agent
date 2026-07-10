@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -89,6 +90,9 @@ class PaperBroker:
         approximating crossing part of the bid-ask spread."""
         self.account_file = account_file
         self.slippage_pct = slippage_pct
+        # Coarse lock: the GUI engine, webhook background tasks, and manual
+        # CLI-triggered actions can all mutate the account concurrently.
+        self._lock = threading.RLock()
         self._state = self._load(starting_cash)
 
     # ---- persistence -------------------------------------------------
@@ -173,6 +177,12 @@ class PaperBroker:
         self, plan: OptionsTradePlan, snapshot: ChainSnapshot, mode_name: str = ""
     ) -> Position | None:
         """Fill a validated plan at net mid +/- slippage. Returns None for no_trade."""
+        with self._lock:
+            return self._execute_plan_locked(plan, snapshot, mode_name)
+
+    def _execute_plan_locked(
+        self, plan: OptionsTradePlan, snapshot: ChainSnapshot, mode_name: str = ""
+    ) -> Position | None:
         if plan.strategy == StrategyType.NO_TRADE or not plan.legs:
             self._journal("no_trade", underlying=plan.underlying, rationale=plan.rationale)
             self._save()
@@ -244,6 +254,12 @@ class PaperBroker:
         self, position_id: str, net_now: float, reason: str = "manual"
     ) -> Position:
         """Close at ``net_now`` (net mid per share, position's price_type convention)."""
+        with self._lock:
+            return self._close_position_locked(position_id, net_now, reason)
+
+    def _close_position_locked(
+        self, position_id: str, net_now: float, reason: str = "manual"
+    ) -> Position:
         pos = self.get_position(position_id)
         if pos is None or pos.status != "open":
             raise ValueError(f"no open position {position_id!r}")
@@ -277,6 +293,10 @@ class PaperBroker:
 
     def mark_position(self, pos: Position, snapshot: ChainSnapshot) -> float | None:
         """Recompute the position's net mid from a fresh snapshot."""
+        with self._lock:
+            return self._mark_position_locked(pos, snapshot)
+
+    def _mark_position_locked(self, pos: Position, snapshot: ChainSnapshot) -> float | None:
         net = 0.0
         for leg in pos.legs:
             q = snapshot.lookup(leg.expiry, leg.right, leg.strike)
@@ -294,6 +314,10 @@ class PaperBroker:
 
         Returns the closed position, or None if it stays open.
         """
+        with self._lock:
+            return self._check_exits_locked(pos, snapshot)
+
+    def _check_exits_locked(self, pos: Position, snapshot: ChainSnapshot) -> Position | None:
         if pos.status != "open":
             return None
         net = self.mark_position(pos, snapshot)

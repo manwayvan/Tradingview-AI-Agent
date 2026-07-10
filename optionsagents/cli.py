@@ -13,8 +13,8 @@ Examples:
     python run_options.py mark          # mark-to-market + stop/target exits
     python run_options.py close <id>
 
-    # Run the TradingView webhook server
-    python run_options.py serve --port 8000
+    # Run the web GUI + strategy engine + TradingView webhook server
+    python run_options.py serve --port 8000     # open http://localhost:8000
 """
 
 from __future__ import annotations
@@ -168,7 +168,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mode", choices=["day", "swing"], default="day")
     p.set_defaults(func=cmd_close)
 
-    p = sub.add_parser("serve", help="Run the TradingView webhook server")
+    p = sub.add_parser(
+        "serve",
+        help="Run the web GUI + set-and-forget strategy engine + TradingView "
+             "webhook server (open http://localhost:8000)",
+    )
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--mode", choices=["day", "swing"], default="day")
