@@ -25,9 +25,20 @@ Do not create long-lived feature branches unless you need a PR review — merge 
 
 ## One-time GitHub cleanup (repo owner)
 
-If the repo default is still `claude/options-trading-agent-k4y8cr`:
+The cloud agent token cannot change the default branch (requires repo **Admin**). Do this once in the GitHub UI:
 
 1. GitHub → **Settings → General → Default branch** → switch to **`main`**
-2. Delete the old branch: `git push origin --delete claude/options-trading-agent-k4y8cr`
+2. Then delete the legacy branch (from your machine or any shell with push access):
 
-Both branches currently point to the same commit (`550572c`); `main` is the canonical name going forward.
+```bash
+git push origin --delete claude/options-trading-agent-k4y8cr
+```
+
+**Already removed:** all `cursor/*` feature branches on the remote. There are **no GitHub forks** of this repository.
+
+After cleanup, only `main` should remain:
+
+```bash
+git ls-remote --heads origin
+# refs/heads/main
+```
