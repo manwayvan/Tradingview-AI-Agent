@@ -103,7 +103,7 @@ make tunnel     # HTTPS URL for TradingView webhooks (no deploy)
 
 See **[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)** for the full workflow,
 **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for Railway/Render/Fly, and
-**[docs/LOVABLE.md](docs/LOVABLE.md)** if you deploy the UI with Lovable.
+**[docs/RAILWAY_SETUP.md](docs/RAILWAY_SETUP.md)** if you connected GitHub to Railway.
 
 ## Quick start: the web app (PC + mobile)
 
