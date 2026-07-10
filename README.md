@@ -101,9 +101,9 @@ make test       # full test suite before you commit
 make tunnel     # HTTPS URL for TradingView webhooks (no deploy)
 ```
 
-See **[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)** for the full workflow and
-**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for why Netlify is not suitable for this
-Python backend (and which hosts to use instead).
+See **[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)** for the full workflow,
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for Railway/Render/Fly, and
+**[docs/LOVABLE.md](docs/LOVABLE.md)** if you deploy the UI with Lovable.
 
 ## Quick start: the web app (PC + mobile)
 

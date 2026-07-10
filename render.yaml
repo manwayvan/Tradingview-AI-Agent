@@ -1,0 +1,28 @@
+# Render blueprint — https://render.com/docs/blueprint-spec
+# Deploy: connect repo → New Blueprint → select render.yaml
+services:
+  - type: web
+    name: options-ai-agent
+    runtime: docker
+    dockerfilePath: ./Dockerfile.web
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: OPTIONS_DATA_DIR
+        value: /data
+      - key: OPTIONS_PUBLIC_URL
+        sync: false
+      - key: OPTIONS_COOKIE_SECURE
+        value: "true"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: AUTONOMOUS_ENABLED
+        value: "false"
+    disk:
+      name: options-data
+      mountPath: /data
+      sizeGB: 1

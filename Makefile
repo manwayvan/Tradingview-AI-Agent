@@ -1,4 +1,4 @@
-.PHONY: dev test smoke tunnel docker-dev install help
+.PHONY: dev test smoke tunnel docker-dev install deploy-check help
 
 PORT ?= 8000
 
@@ -10,8 +10,9 @@ help:
 	@echo "  make smoke      — quick HTTP checks (dev must be running)"
 	@echo "  make tunnel     — HTTPS tunnel for TradingView webhooks"
 	@echo "  make docker-dev — same as dev, in Docker"
+	@echo "  make deploy-check — tests + docker build before production"
 	@echo ""
-	@echo "Docs: docs/LOCAL_DEVELOPMENT.md  docs/DEPLOYMENT.md"
+	@echo "Docs: docs/LOCAL_DEVELOPMENT.md  docs/DEPLOYMENT.md  docs/LOVABLE.md"
 
 install:
 	python3 -m venv .venv
@@ -37,3 +38,7 @@ tunnel:
 
 docker-dev:
 	docker compose -f docker-compose.dev.yml up --build
+
+deploy-check:
+	@chmod +x scripts/deploy-check.sh
+	@./scripts/deploy-check.sh

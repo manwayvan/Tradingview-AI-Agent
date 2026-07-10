@@ -8,7 +8,9 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-_DEFAULT_DB = os.path.join(os.path.expanduser("~"), ".tradingagents", "app.db")
+from optionsagents.paths import data_root
+
+_DEFAULT_DB = os.path.join(data_root(), "app.db")
 
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None

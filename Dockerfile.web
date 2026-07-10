@@ -1,0 +1,45 @@
+# Production web server image (Railway, Render, Fly, VPS).
+# Build:  docker build -f Dockerfile.web -t options-ai-agent .
+# Run:    docker run -p 8000:8000 -e OPTIONS_DATA_DIR=/data -v opts_data:/data ...
+
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /build
+COPY pyproject.toml README.md LICENSE ./
+COPY optionsagents ./optionsagents
+COPY tradingagents ./tradingagents
+COPY cli ./cli
+COPY pine ./pine
+RUN pip install --no-cache-dir .
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    OPTIONS_DATA_DIR=/data \
+    PORT=8000
+
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN useradd --create-home appuser \
+ && install -d -m 0755 -o appuser -g appuser /data
+USER appuser
+WORKDIR /home/appuser/app
+
+COPY --from=builder --chown=appuser:appuser /build/optionsagents ./optionsagents
+COPY --from=builder --chown=appuser:appuser /build/tradingagents ./tradingagents
+COPY --from=builder --chown=appuser:appuser /build/pine ./pine
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+
+CMD uvicorn optionsagents.webhook_server:app --host 0.0.0.0 --port ${PORT}

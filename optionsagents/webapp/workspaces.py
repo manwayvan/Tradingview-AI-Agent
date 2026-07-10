@@ -12,12 +12,13 @@ from optionsagents.autonomous.config import AutonomousConfig
 from optionsagents.autonomous.orchestrator import AutonomousOrchestrator
 from optionsagents.engine import Strategy, StrategyEngine
 from optionsagents.paper_broker import PaperBroker
+from optionsagents.paths import data_root
 from optionsagents.pipeline import OptionsPipeline
 from optionsagents.webapp.auth import User, set_autonomous_enabled
 
 logger = logging.getLogger(__name__)
 
-_USERS_ROOT = os.path.join(os.path.expanduser("~"), ".tradingagents", "users")
+_USERS_ROOT = os.path.join(data_root(), "users")
 
 
 def _user_dir(user_id: str) -> str:

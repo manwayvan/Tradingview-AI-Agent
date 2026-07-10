@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from optionsagents.webapp.api import router as api_router
 from optionsagents.webapp.auth import list_users
 from optionsagents.webapp.database import get_db
+from optionsagents.webapp.middleware import configure_cors
 
 # Re-export for CLI backward compatibility
 from optionsagents.webapp.legacy import (  # noqa: F401
@@ -57,6 +58,7 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+configure_cors(app)
 app.include_router(api_router)
 
 _assets = _STATIC_DIR / "assets"

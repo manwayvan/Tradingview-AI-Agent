@@ -23,6 +23,7 @@ every request.
 | **[Railway](https://railway.app)** | Easiest Docker deploy | ~$5 credit/month, one-click from GitHub |
 | **[Render](https://render.com)** | Simple web service | Free web service (sleeps after idle) |
 | **[Fly.io](https://fly.io)** | Always-on, global | Small VMs free tier |
+| **[Lovable](https://lovable.dev)** | React UI (optional) | Pair with Railway backend — see [LOVABLE.md](./LOVABLE.md) |
 | **VPS** (Hetzner, DigitalOcean) | Full control | ~$4–6/mo, run `docker compose` |
 
 Any of these can run:
@@ -63,15 +64,32 @@ Point a custom domain at Railway/Render instead. You get:
 - One production deploy when you choose
 - No rewrite for background jobs / SQLite
 
+## One-command production files
+
+| File | Platform |
+|------|----------|
+| `Dockerfile.web` | Docker (all platforms) |
+| `railway.toml` | [Railway](https://railway.app) |
+| `render.yaml` | [Render](https://render.com) Blueprint |
+| `fly.toml` | [Fly.io](https://fly.io) |
+| `.env.production.example` | Secret template |
+
+Pre-flight: `make deploy-check`
+
+**Lovable users:** deploy the Python API to Railway, optionally rebuild the UI in
+Lovable — full guide in [LOVABLE.md](./LOVABLE.md).
+
 ## Production checklist
 
 ```bash
 # On your host (Railway/Render/Fly/VPS)
+export OPTIONS_DATA_DIR=/data          # mount persistent volume here
 export OPTIONS_PUBLIC_URL=https://your-domain.com
 export OPTIONS_COOKIE_SECURE=true
-# LLM keys, etc. from .env.example
+# LLM keys, etc. from .env.production.example
 
-python run_options.py serve --host 0.0.0.0 --port $PORT
+# Docker (recommended on Railway/Render):
+# Uses Dockerfile.web automatically via railway.toml / render.yaml
 ```
 
 - [ ] HTTPS on port 443 (required by TradingView)
@@ -80,16 +98,15 @@ python run_options.py serve --host 0.0.0.0 --port $PORT
 - [ ] TradingView: paid plan + 2FA enabled
 - [ ] Process manager or platform health checks (so the engine stays running)
 
-## Docker production (optional)
+## Docker production
 
 ```bash
-docker build -t options-ai-agent .
-docker run -p 8000:8000 --env-file .env \
-  -v options_data:/home/appuser/.tradingagents \
-  options-ai-agent uvicorn optionsagents.webhook_server:app --host 0.0.0.0 --port 8000
+docker build -f Dockerfile.web -t options-ai-agent .
+docker run -p 8000:8000 --env-file .env.production.example \
+  -e OPTIONS_DATA_DIR=/data \
+  -v options_data:/data \
+  options-ai-agent
 ```
-
-(Override the default `ENTRYPOINT` for web serve — see `Dockerfile`.)
 
 ## Summary
 
@@ -98,5 +115,6 @@ docker run -p 8000:8000 --env-file .env \
 | Test without waiting / without deploy quota | `make dev` locally |
 | Test TradingView webhooks without deploy | `make tunnel` |
 | Run CI-quality checks before commit | `make test` |
-| Public web app that actually works | Railway / Render / Fly / VPS — **not Netlify** |
+| Public web app that actually works | Railway / Render / Fly — see `make deploy-check` |
+| Polished React UI | Lovable frontend + Railway API — [LOVABLE.md](./LOVABLE.md) |
 | Save Netlify minutes | Don’t auto-deploy; or use Netlify only for static marketing site |
