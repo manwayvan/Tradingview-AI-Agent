@@ -28,6 +28,9 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, ValidationError
 
+from optionsagents.autonomous.brain import TradeDirective
+from optionsagents.autonomous.config import AutonomousConfig
+from optionsagents.autonomous.orchestrator import AutonomousOrchestrator
 from optionsagents.engine import (
     DEFAULT_STRATEGIES_FILE,
     Strategy,
@@ -46,6 +49,7 @@ logger = logging.getLogger(__name__)
 _pipelines: dict[str, OptionsPipeline] = {}
 _broker: PaperBroker | None = None
 _engine: StrategyEngine | None = None
+_orchestrator: AutonomousOrchestrator | None = None
 _lock = threading.Lock()
 
 
@@ -93,6 +97,76 @@ def _check_positions() -> list:
     return get_pipeline("day").check_positions()
 
 
+def _execute_autonomous_trade(directive: TradeDirective) -> str:
+    """Orchestrator callback: run one AI-selected trade through the pipeline."""
+    pipeline = get_pipeline(directive.mode)
+    context = (
+        f"Autonomous AI brain selected {directive.ticker} "
+        f"({directive.mode} / {directive.signal}, conviction {directive.conviction:.0%}). "
+        f"{directive.rationale}"
+    )
+    if directive.signal in ("buy", "sell"):
+        result = pipeline.run_signal(directive.ticker, directive.signal, context=context)
+    else:
+        result = pipeline.run(directive.ticker)
+    if result.position:
+        return (
+            f"opened {result.plan.strategy.value} "
+            f"(id {result.position.id}, max risk ${result.position.max_risk:,.0f})"
+        )
+    reason = result.warnings[0] if result.warnings else result.plan.rationale
+    return f"no trade — {reason}" if reason else "no trade"
+
+
+def _memory_context() -> str:
+    try:
+        from tradingagents.agents.utils.memory import TradingMemoryLog
+        from tradingagents.default_config import DEFAULT_CONFIG
+
+        mem = TradingMemoryLog(DEFAULT_CONFIG)
+        return mem.get_past_context("", n_same=3, n_cross=5)
+    except Exception:
+        return ""
+
+
+def _open_tickers() -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for p in get_broker().positions("open"):
+        counts[p.underlying] = counts.get(p.underlying, 0) + 1
+    return counts
+
+
+def get_orchestrator() -> AutonomousOrchestrator:
+    global _orchestrator
+    with _lock:
+        if _orchestrator is None:
+            config = AutonomousConfig.from_env()
+            brain = None
+            try:
+                from tradingagents.default_config import DEFAULT_CONFIG
+                from tradingagents.graph.trading_graph import TradingAgentsGraph
+
+                graph = TradingAgentsGraph(config=DEFAULT_CONFIG.copy())
+                brain_llm = graph.deep_thinking_llm
+                from optionsagents.autonomous.brain import StrategyBrain
+                brain = StrategyBrain(brain_llm)
+            except Exception as exc:
+                logger.warning("Autonomous brain LLM unavailable (%s); rules fallback", exc)
+                from optionsagents.autonomous.brain import StrategyBrain
+                brain = StrategyBrain(None)
+
+            _orchestrator = AutonomousOrchestrator(
+                execute_trade=_execute_autonomous_trade,
+                get_portfolio_summary=lambda: get_broker().summary(),
+                get_open_tickers=_open_tickers,
+                get_broker=get_broker,
+                config=config,
+                brain=brain,
+                memory_context_fn=_memory_context,
+            )
+        return _orchestrator
+
+
 def get_engine() -> StrategyEngine:
     global _engine
     with _lock:
@@ -110,7 +184,9 @@ def get_engine() -> StrategyEngine:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     get_engine().start()
+    get_orchestrator().start()
     yield
+    get_orchestrator().stop()
     get_engine().stop()
 
 
@@ -148,6 +224,7 @@ def state() -> dict:
         "positions": [asdict(p) for p in broker.positions()],
         "journal": broker._state["journal"][-50:][::-1],
         "engine": get_engine().snapshot(),
+        "autonomous": get_orchestrator().snapshot(broker=broker),
         "webhook_secret_set": bool(os.environ.get("TRADINGVIEW_WEBHOOK_SECRET")),
     }
 
@@ -196,6 +273,30 @@ def run_strategy_now(strategy_id: str) -> dict:
     if not get_engine().run_now(strategy_id):
         raise HTTPException(status_code=409, detail="strategy missing or already running")
     return {"started": strategy_id}
+
+
+# ---------------------------------------------------------------------------
+# Autonomous AI brain API
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/autonomous")
+def autonomous_state() -> dict:
+    return get_orchestrator().snapshot(broker=get_broker())
+
+
+@app.post("/api/autonomous/toggle")
+def toggle_autonomous() -> dict:
+    orch = get_orchestrator()
+    orch.set_enabled(not orch.enabled)
+    return {"enabled": orch.enabled}
+
+
+@app.post("/api/autonomous/run")
+def run_autonomous_now() -> dict:
+    if not get_orchestrator().run_now():
+        raise HTTPException(status_code=409, detail="cycle already running")
+    return {"started": True}
 
 
 # ---------------------------------------------------------------------------

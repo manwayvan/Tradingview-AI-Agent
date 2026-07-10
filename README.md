@@ -27,6 +27,7 @@ optionsagents/    NEW: the options trading layer
   paper_broker.py   Local paper account: mid fills, slippage, stops/targets, JSON ledger
   pipeline.py       Research -> chain -> strategist -> risk gate -> paper fill
   engine.py         Set-and-forget strategy scheduler + automatic exit management
+  autonomous/       NEW: self-directed AI brain (scan → decide → execute)
   webhook_server.py Web server: GUI dashboard, strategy API, TradingView webhook
   static/index.html The dashboard GUI (self-contained, light/dark)
   cli.py            optionsagents / run_options.py command line
@@ -114,6 +115,44 @@ Everything happens in the dashboard:
 A typical set-and-forget setup: add `analyze NVDA, swing, daily at 10:00`,
 plus a couple of TradingView day-signal alerts (below), then just leave the
 server running and check the dashboard in the evening.
+
+## Autonomous AI brain (self-sufficient operation)
+
+The **Autonomous AI brain** is a fully self-directed layer on top of the
+existing pipeline. You do not pick tickers or strategies manually — the system
+does it for you:
+
+1. **Market scanner** — ranks a liquid-options universe (30 names by default)
+   using momentum, relative strength vs SPY, RSI, volume surge, trend, and
+   volatility.
+2. **Market context** — reads SPY trend and VIX to classify the regime
+   (risk-on, risk-off, volatile, neutral).
+3. **Strategy brain (LLM CIO)** — receives ranked candidates, regime, open
+   positions, and past decision memory; picks 0–2 high-conviction trades with
+   mode (day/swing) and signal (analyze/buy/sell). Falls back to deterministic
+   rules when no LLM key is set.
+4. **Portfolio risk manager** — enforces daily loss limits, total open risk
+   caps, and per-ticker concentration before any trade fires.
+5. **Orchestrator** — runs the full cycle on a schedule during market hours,
+   executes through the options pipeline, and journals everything.
+
+```bash
+# Start server with autonomous brain enabled
+export AUTONOMOUS_ENABLED=true
+python run_options.py serve
+
+# Or enable from the dashboard ("Autonomous AI brain" card)
+
+# CLI: scan universe once, run one cycle, or check status
+python run_options.py autonomous scan --top 10
+python run_options.py autonomous run
+python run_options.py autonomous status
+python run_options.py autonomous enable
+```
+
+Tune via environment variables (see `.env.example`): universe, cycle interval,
+max trades per cycle, conviction threshold, daily loss kill switch, and open
+risk cap.
 
 ## CLI usage
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from dataclasses import asdict
 
@@ -115,7 +116,69 @@ def cmd_serve(args) -> int:
     from optionsagents.webhook_server import app
 
     os.environ.setdefault("OPTIONS_ACCOUNT_FILE", args.account_file)
+    if getattr(args, "autonomous", False):
+        os.environ["AUTONOMOUS_ENABLED"] = "true"
     uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
+def cmd_autonomous(args) -> int:
+    from optionsagents.autonomous.brain import StrategyBrain
+    from optionsagents.autonomous.config import AutonomousConfig
+    from optionsagents.autonomous.market_context import build_market_context
+    from optionsagents.autonomous.orchestrator import AutonomousOrchestrator
+    from optionsagents.autonomous.scanner import MarketScanner
+    from optionsagents.webhook_server import (
+        _execute_autonomous_trade,
+        _memory_context,
+        _open_tickers,
+        get_broker,
+        get_orchestrator,
+    )
+
+    os.environ.setdefault("OPTIONS_ACCOUNT_FILE", args.account_file)
+    config = AutonomousConfig.from_env()
+
+    if args.autonomous_cmd == "scan":
+        scanner = MarketScanner(universe=config.universe)
+        candidates = scanner.scan(top_n=args.top)
+        if not candidates:
+            print("No candidates found.")
+            return 0
+        print(f"Top {len(candidates)} candidates:\n")
+        for i, c in enumerate(candidates, 1):
+            print(f"{i}. {c.to_summary_line()}")
+        market = build_market_context()
+        print(f"\nMarket: {market.regime} — {market.assessment}")
+        return 0
+
+    if args.autonomous_cmd == "run":
+        orch = AutonomousOrchestrator(
+            execute_trade=_execute_autonomous_trade,
+            get_portfolio_summary=lambda: get_broker().summary(),
+            get_open_tickers=_open_tickers,
+            get_broker=get_broker,
+            config=config.with_overrides(enabled=True),
+            brain=StrategyBrain(None),
+            memory_context_fn=_memory_context,
+        )
+        orch._run_cycle()
+        snap = orch.snapshot(broker=get_broker())
+        print(json.dumps(snap.get("last_result"), indent=2))
+        return 0
+
+    orch = get_orchestrator()
+    if args.autonomous_cmd == "enable":
+        orch.set_enabled(True)
+        print("Autonomous brain enabled.")
+        return 0
+    if args.autonomous_cmd == "disable":
+        orch.set_enabled(False)
+        print("Autonomous brain paused.")
+        return 0
+
+    snap = orch.snapshot(broker=get_broker())
+    print(json.dumps(snap, indent=2))
     return 0
 
 
@@ -176,7 +239,33 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--mode", choices=["day", "swing"], default="day")
+    p.add_argument(
+        "--autonomous", action="store_true",
+        help="Enable the autonomous AI brain on server start (or set AUTONOMOUS_ENABLED=true)",
+    )
     p.set_defaults(func=cmd_serve)
+
+    auto = sub.add_parser(
+        "autonomous",
+        help="Autonomous AI: scan universe, pick strategies, execute on paper",
+    )
+    auto_sub = auto.add_subparsers(dest="autonomous_cmd", required=True)
+
+    p = auto_sub.add_parser("scan", help="Run the quantitative screener once")
+    p.add_argument("--top", type=int, default=12, help="Number of candidates to show")
+    p.set_defaults(func=cmd_autonomous)
+
+    p = auto_sub.add_parser("run", help="Run one full autonomous cycle now")
+    p.set_defaults(func=cmd_autonomous)
+
+    p = auto_sub.add_parser("status", help="Show autonomous brain state")
+    p.set_defaults(func=cmd_autonomous)
+
+    p = auto_sub.add_parser("enable", help="Enable autonomous trading loop")
+    p.set_defaults(func=cmd_autonomous)
+
+    p = auto_sub.add_parser("disable", help="Pause autonomous trading loop")
+    p.set_defaults(func=cmd_autonomous)
 
     args = parser.parse_args(argv)
     return args.func(args)

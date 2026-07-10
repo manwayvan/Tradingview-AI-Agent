@@ -113,6 +113,7 @@
   <header>
     <h1>Options Agent</h1>
     <span class="pill" id="pill-engine"><span class="dot"></span>engine</span>
+    <span class="pill" id="pill-autonomous"><span class="dot"></span>AI brain</span>
     <span class="pill" id="pill-market"><span class="dot"></span>market</span>
     <span class="pill muted" id="pill-updated"></span>
   </header>
@@ -124,6 +125,22 @@
   </div>
 
   <div class="tiles" id="tiles"></div>
+
+  <div class="card" id="autonomous-card">
+    <h2>Autonomous AI brain — self-directed trading</h2>
+    <p class="small muted" style="margin-top:0">
+      Scans a liquid-options universe with multi-factor analysis, asks an LLM CIO to
+      pick the best setups and trading mode, enforces portfolio risk limits, and executes
+      on paper automatically during market hours.
+    </p>
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px">
+      <button class="primary" id="btn-auto-toggle">Enable AI brain</button>
+      <button id="btn-auto-run">Run cycle now</button>
+    </div>
+    <div class="tiles" id="auto-tiles" style="margin-bottom:10px"></div>
+    <div class="small" id="auto-status" class="muted"></div>
+    <div class="feed" id="auto-feed" style="max-height:200px; margin-top:10px"></div>
+  </div>
 
   <div class="card">
     <h2>Strategies — set and forget</h2>
@@ -303,9 +320,60 @@ function renderPositions(positions) {
     </tr>`).join("");
 }
 
-function renderFeed(engine, journal) {
+function renderAutonomous(auto) {
+  if (!auto) return;
+  const enabled = auto.enabled;
+  $("#pill-autonomous").classList.toggle("on", enabled);
+  $("#pill-autonomous").innerHTML = `<span class="dot"></span>AI brain ${enabled ? "on" : "off"}`;
+  $("#btn-auto-toggle").textContent = enabled ? "Pause AI brain" : "Enable AI brain";
+  $("#btn-auto-toggle").classList.toggle("primary", !enabled);
+
+  const risk = auto.risk || {};
+  const cfg = auto.config || {};
+  $("#auto-tiles").innerHTML = `
+    <div class="tile"><div class="label">Universe</div>
+      <div class="value">${cfg.universe_size ?? "–"}</div>
+      <div class="sub">scans top ${cfg.scan_top_n ?? "–"}</div></div>
+    <div class="tile"><div class="label">Cycle</div>
+      <div class="value">${cfg.cycle_interval_minutes ?? "–"}m</div>
+      <div class="sub">${auto.due ? "due now" : (auto.cycle_running ? "running…" : "waiting")}</div></div>
+    <div class="tile"><div class="label">Daily loss room</div>
+      <div class="value">${fmtUsd(risk.daily_loss_remaining)}</div>
+      <div class="sub">cap ${fmtUsd(risk.max_daily_loss)}</div></div>
+    <div class="tile"><div class="label">Open risk</div>
+      <div class="value">${fmtUsd(risk.total_open_risk)}</div>
+      <div class="sub">cap ${fmtUsd(risk.max_total_open_risk)}</div></div>`;
+
+  const last = auto.last_result;
+  let status = auto.last_cycle
+    ? `Last cycle: ${esc(auto.last_cycle.slice(0, 16).replace("T", " "))}`
+    : "No cycles yet.";
+  if (last) {
+    status += ` — scanned ${last.candidates_scanned}, opened ${last.trades_opened}.`;
+    if (last.decision && last.decision.reasoning) {
+      status += ` ${esc(last.decision.reasoning)}`;
+    }
+  }
+  if (risk.kill_switch_active) {
+    status = `<span class="pnl-neg">Kill switch active — daily loss limit hit. AI brain paused trading.</span>`;
+  }
+  $("#auto-status").innerHTML = status;
+
+  const events = auto.events || [];
+  $("#auto-feed").innerHTML = events.length ? events.map((e) => `
+    <div class="ev">
+      <time>${esc(e.time)}</time>
+      <span class="kind ${esc(e.kind)}">${esc(e.kind)}</span>
+      <span>${esc(e.message)}</span>
+    </div>`).join("") : '<div class="empty">Autonomous brain idle — enable it to start scanning and trading.</div>';
+}
+
+function renderFeed(engine, journal, autonomous) {
   const events = (engine.events || []).map((e) => ({
     time: e.time, kind: e.kind, msg: e.message,
+  }));
+  const autoEvents = (autonomous && autonomous.events || []).map((e) => ({
+    time: e.time, kind: "auto:" + e.kind, msg: e.message,
   }));
   const jEvents = (journal || []).map((j) => {
     const { time, event, ...rest } = j;
@@ -314,7 +382,7 @@ function renderFeed(engine, journal) {
     return { time: (time || "").replace("T", " ").replace("Z", " UTC"),
              kind: event, msg: detail };
   });
-  const all = events.concat(jEvents).slice(0, 80);
+  const all = events.concat(autoEvents).concat(jEvents).slice(0, 80);
   $("#feed").innerHTML = all.length ? all.map((e) => `
     <div class="ev">
       <time>${esc(e.time)}</time>
@@ -329,7 +397,8 @@ async function refresh() {
     renderPositions(s.positions);       // before tiles: win rate uses closed list
     renderTiles(s.account);
     renderStrategies(s.engine);
-    renderFeed(s.engine, s.journal);
+    renderAutonomous(s.autonomous);
+    renderFeed(s.engine, s.journal, s.autonomous);
     $("#pill-engine").classList.toggle("on", s.engine.running);
     $("#pill-engine").innerHTML = `<span class="dot"></span>engine ${s.engine.running ? "running" : "stopped"}`;
     $("#pill-market").classList.toggle("on", s.engine.market_open);
@@ -352,6 +421,15 @@ window.closePos = async (id) => {
   try { const r = await api(`/positions/${id}/close`, {method: "POST"});
         alert(`Closed. P&L: ${fmtUsd(r.pnl)}`); refresh(); } catch (e) { alert(e.message); }
 };
+
+$("#btn-auto-toggle").addEventListener("click", async () => {
+  try { await api("/api/autonomous/toggle", {method: "POST"}); refresh(); }
+  catch (e) { alert(e.message); }
+});
+$("#btn-auto-run").addEventListener("click", async () => {
+  try { await api("/api/autonomous/run", {method: "POST"}); refresh(); }
+  catch (e) { alert(e.message); }
+});
 
 $("#trigger-select").addEventListener("change", (e) => {
   $("#lbl-time").style.display = e.target.value === "daily" ? "" : "none";
