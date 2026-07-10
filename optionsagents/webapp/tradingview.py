@@ -21,12 +21,22 @@ def pine_script_for_user(secret: str, script: str = "day") -> str:
 def tradingview_setup_steps(webhook_url: str) -> list[dict]:
     return [
         {
-            "step": 1,
-            "title": "TradingView account requirements",
+            "step": 0,
+            "title": "Free built-in signals (recommended)",
             "body": (
-                "Use a paid TradingView plan (Essential or higher) and enable "
-                "two-factor authentication on your TradingView account. Webhook "
-                "alerts are not available on the free plan."
+                "You do not need TradingView to use this app. Enable Free Signals on the "
+                "Signals tab — the server scans your watchlist with the same EMA/VWAP/RSI "
+                "rules as the Pine scripts and runs paper trades automatically. No paid "
+                "subscription required."
+            ),
+        },
+        {
+            "step": 1,
+            "title": "TradingView account requirements (optional)",
+            "body": (
+                "Only if you prefer TradingView charts: use a paid plan (Essential or "
+                "higher) and enable two-factor authentication. Webhook alerts are not "
+                "available on the free TradingView plan."
             ),
         },
         {

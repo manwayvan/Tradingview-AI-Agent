@@ -150,6 +150,47 @@ function renderStrategies(engine) {
     </tr>`).join("");
 }
 
+function renderSignals(signals) {
+  if (!signals) return;
+  const cfg = signals.config || {};
+  const enabled = cfg.enabled;
+  $("#pill-signals")?.classList.toggle("on", enabled && signals.running);
+  const btn = $("#btn-signals-toggle");
+  if (btn) {
+    btn.textContent = enabled ? "Pause signals" : "Enable signals";
+    btn.classList.toggle("primary", !enabled);
+  }
+  const tiles = $("#signals-tiles");
+  if (tiles) {
+    tiles.innerHTML = `
+      <div class="tile"><div class="label">Watchlist</div><div class="value">${(cfg.watchlist || []).length}</div><div class="sub">tickers</div></div>
+      <div class="tile"><div class="label">Day scan</div><div class="value">${cfg.day_scan_minutes ?? 5}m</div><div class="sub">${signals.market_open ? "market open" : "closed"}</div></div>
+      <div class="tile"><div class="label">Swing scan</div><div class="value">${cfg.swing_scan_time ?? "10:05"}</div><div class="sub">ET daily</div></div>
+      <div class="tile"><div class="label">Status</div><div class="value">${enabled ? "on" : "off"}</div><div class="sub">${signals.due_day_scan ? "scan due" : "waiting"}</div></div>`;
+  }
+  const st = $("#signals-status");
+  if (st) {
+    let txt = signals.last_day_scan
+      ? `Last day scan ${signals.last_day_scan.slice(0, 16).replace("T", " ")}`
+      : "No day scans yet.";
+    if (signals.last_swing_scan_date) txt += ` · swing ${signals.last_swing_scan_date}`;
+    st.textContent = txt;
+  }
+  const input = $("#watchlist-input");
+  if (input && cfg.watchlist?.length && !input.dataset.touched) {
+    input.value = cfg.watchlist.join(", ");
+  }
+  const feed = $("#signals-feed");
+  if (feed) {
+    const events = signals.events || [];
+    feed.innerHTML = events.length
+      ? events.map((e) => `<div class="ev"><time>${esc(e.time)}</time><span class="kind">${esc(e.kind)}</span><span>${esc(e.message)}</span></div>`).join("")
+      : '<div class="empty">Free signals scan your watchlist during market hours.</div>';
+  }
+  const banner = $("#signals-banner");
+  if (banner) banner.classList.toggle("hidden", !enabled);
+}
+
 function renderAutonomous(auto) {
   if (!auto) return;
   const enabled = auto.enabled;
@@ -191,6 +232,7 @@ function renderFeed(engine, journal, autonomous) {
   const events = [];
   (engine?.events || []).forEach((e) => events.push({ time: e.time, kind: e.kind, msg: e.message }));
   (autonomous?.events || []).forEach((e) => events.push({ time: e.time, kind: `auto:${e.kind}`, msg: e.message }));
+  (window._signals?.events || []).forEach((e) => events.push({ time: e.time, kind: `signal:${e.kind}`, msg: e.message }));
   (journal || []).forEach((j) => {
     const { time, event, ...rest } = j;
     const detail = Object.entries(rest).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : v}`).join(", ");
@@ -236,14 +278,15 @@ async function refreshApp() {
   renderPositions(s.positions);
   renderTiles(s.account);
   renderStrategies(s.engine);
+  renderSignals(s.free_signals);
+  window._signals = s.free_signals;
   renderAutonomous(s.autonomous);
   renderFeed(s.engine, s.journal, s.autonomous);
   renderAccount(s.user);
   $("#pill-engine")?.classList.toggle("on", s.engine?.running);
+  $("#pill-signals")?.classList.toggle("on", s.free_signals?.config?.enabled && s.free_signals?.running);
   $("#pill-market")?.classList.toggle("on", s.engine?.market_open);
   $("#pill-updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
-  const banner = $("#tv-banner");
-  if (banner) banner.classList.toggle("hidden", !!s.user?.tv_connected);
 }
 
 async function refreshTradingView() {
@@ -327,6 +370,31 @@ function bindAppEvents() {
   $("#btn-auto-run")?.addEventListener("click", async () => {
     await api("/api/autonomous/run", { method: "POST" });
     toast("Cycle started");
+    refreshApp();
+  });
+
+  $("#btn-signals-toggle")?.addEventListener("click", async () => {
+    await api("/api/signals/toggle", { method: "POST" });
+    refreshApp();
+  });
+  $("#btn-signals-scan")?.addEventListener("click", async () => {
+    const r = await api("/api/signals/scan", { method: "POST" });
+    toast(`Scan done · day ${r.day_signals} · swing ${r.swing_signals}`);
+    refreshApp();
+  });
+  $("#watchlist-input")?.addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
+  $("#watchlist-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const tickers = String(f.get("tickers")).split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean);
+    await api("/api/signals/watchlist", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers }),
+    });
+    toast("Watchlist saved");
+    const input = $("#watchlist-input");
+    if (input) delete input.dataset.touched;
     refreshApp();
   });
 

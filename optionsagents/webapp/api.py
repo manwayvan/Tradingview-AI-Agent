@@ -59,6 +59,10 @@ class TradingViewConnectRequest(BaseModel):
     confirm: bool = False
 
 
+class WatchlistRequest(BaseModel):
+    tickers: list[str] = Field(min_length=1, max_length=50)
+
+
 class StrategyRequest(BaseModel):
     ticker: str = Field(min_length=1, max_length=12)
     mode: str = Field(pattern="^(day|swing)$")
@@ -216,6 +220,32 @@ def run_autonomous_now(request: Request, user: User = Depends(require_user)) -> 
     return {"started": True}
 
 
+@router.get("/api/signals")
+def signals_state(request: Request, user: User = Depends(require_user)) -> dict:
+    return _ws(user, request).free_signals.snapshot()
+
+
+@router.post("/api/signals/toggle")
+def toggle_signals(request: Request, user: User = Depends(require_user)) -> dict:
+    engine = _ws(user, request).free_signals
+    engine.set_enabled(not engine.config.enabled)
+    return {"enabled": engine.config.enabled}
+
+
+@router.put("/api/signals/watchlist")
+def update_watchlist(req: WatchlistRequest, request: Request, user: User = Depends(require_user)) -> dict:
+    try:
+        _ws(user, request).free_signals.set_watchlist(req.tickers)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"watchlist": _ws(user, request).free_signals.config.watchlist}
+
+
+@router.post("/api/signals/scan")
+def scan_signals_now(request: Request, user: User = Depends(require_user)) -> dict:
+    return _ws(user, request).free_signals.scan_now()
+
+
 @router.get("/account")
 def account(request: Request, user: User = Depends(require_user)) -> dict:
     return _ws(user, request).broker.summary()
@@ -258,24 +288,7 @@ def close_position(position_id: str, request: Request, user: User = Depends(requ
 
 
 def _run_alert_for_workspace(ws: UserWorkspace, alert: TradingViewAlert) -> None:
-    try:
-        pipeline = ws.get_pipeline(alert.mode)
-        if alert.signal in ("buy", "sell"):
-            context = (
-                f"TradingView alert: {alert.signal.upper()} {alert.ticker}"
-                + (f" at {alert.price}" if alert.price else "")
-                + (f" on the {alert.interval} chart" if alert.interval else "")
-                + (f". Note: {alert.note}" if alert.note else "")
-            )
-            result = pipeline.run_signal(alert.ticker, alert.signal, context)
-        else:
-            result = pipeline.run(alert.ticker)
-        logger.info(
-            "user %s alert %s %s -> %s",
-            ws.user.id, alert.ticker, alert.signal, result.plan.strategy.value,
-        )
-    except Exception:
-        logger.exception("alert failed for user %s ticker %s", ws.user.id, alert.ticker)
+    ws.handle_alert(alert)
 
 
 def resolve_webhook_workspace(secret: str):

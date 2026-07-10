@@ -1,7 +1,7 @@
 {
   "name": "Options AI Agent",
   "short_name": "Options AI",
-  "description": "Autonomous AI options paper trading with TradingView alerts",
+  "description": "Autonomous AI options paper trading with free built-in signals",
   "start_url": "/app",
   "display": "standalone",
   "background_color": "#fcfcfb",

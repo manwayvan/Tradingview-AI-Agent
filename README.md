@@ -119,10 +119,9 @@ python run_options.py serve
 Then open **http://localhost:8000** — you'll land on the sign-in page.
 
 1. **Create an account** (email + password). Each user gets an isolated paper ledger, strategies, and AI brain.
-2. Open the **TV** tab and enter your **TradingView username** (you sign in on tradingview.com separately — TradingView does not offer third-party OAuth for execution apps).
-3. Copy your personal **webhook URL** and **Pine script** (your secret is embedded automatically).
-4. In TradingView: paid plan + 2FA enabled → add the Pine script → create an alert with your webhook URL.
-5. Enable the **Autonomous AI brain** from the AI tab, or add scheduled strategies from Plans.
+2. Open the **Signals** tab — **free built-in signals are enabled by default**. The server scans your watchlist with the same EMA/VWAP/RSI rules as the Pine scripts and opens paper trades automatically. No TradingView subscription required.
+3. *(Optional)* Open the **TV** tab if you have a **paid** TradingView plan and want chart alerts via webhook instead.
+4. Enable the **Autonomous AI brain** from the AI tab, or add scheduled strategies from Plans.
 
 **Mobile:** open the site in Safari/Chrome and use **Add to Home Screen** for a full-screen app experience. The bottom navigation works on phone and desktop.
 
@@ -227,7 +226,22 @@ When the GUI server is running, exits are enforced automatically. If you only
 use the CLI, run `python run_options.py mark` periodically while positions
 are open — that's what enforces stops, targets, and expiry closes.
 
-## TradingView integration (paper testing)
+## Free built-in signals (no TradingView)
+
+The app includes a **free signal engine** that replicates the Pine script logic on the server:
+
+| Mode | Rules | Action |
+|------|-------|--------|
+| Day (5m) | EMA 9/21 crossover + VWAP filter | `buy` / `sell` → fast options path |
+| Swing (daily) | EMA 20/50 crossover + RSI band | `analyze` → full multi-agent research |
+
+- Enabled by default for every account; configure watchlist on the **Signals** tab.
+- Scans during US market hours (day) and once daily after 10:05 ET (swing).
+- Uses yfinance for price data — no paid charting subscription.
+
+TradingView webhooks remain available as an **optional** upgrade for users who already pay for TradingView Pro.
+
+## TradingView integration (optional, paid plan)
 
 TradingView does not expose a public order-execution API — its built-in Paper
 Trading account can't be driven programmatically. So the integration works in

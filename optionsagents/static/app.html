@@ -17,6 +17,7 @@
       <h1>Options AI</h1>
       <div class="pills">
         <span class="pill" id="pill-engine">engine</span>
+        <span class="pill" id="pill-signals">signals</span>
         <span class="pill" id="pill-auto">AI</span>
         <span class="pill" id="pill-market">market</span>
         <span class="pill" id="pill-updated">…</span>
@@ -28,8 +29,8 @@
     <div id="toast" class="banner hidden" role="status"></div>
 
     <section class="panel active" data-panel="home">
-      <div class="banner" id="tv-banner">
-        Connect TradingView in the <strong>TV</strong> tab to receive live alert signals on mobile and desktop.
+      <div class="banner" id="signals-banner">
+        <strong>Free signals are on.</strong> The built-in scanner watches your list and trades automatically — no TradingView subscription needed.
       </div>
       <div class="tiles" id="home-tiles"></div>
 
@@ -76,6 +77,30 @@
       </div>
     </section>
 
+    <section class="panel" data-panel="signals">
+      <div class="card">
+        <h2>Free built-in signals</h2>
+        <p class="sub">Runs the same EMA/VWAP (day) and EMA/RSI (swing) rules as the Pine scripts — entirely on this server. No paid TradingView plan required.</p>
+        <div class="btn-row" style="margin-bottom:12px">
+          <button class="btn primary" id="btn-signals-toggle">Pause signals</button>
+          <button class="btn" id="btn-signals-scan">Scan now</button>
+        </div>
+        <div class="tiles" id="signals-tiles"></div>
+        <p class="sub" id="signals-status"></p>
+        <form id="watchlist-form" class="form-grid" style="margin-bottom:12px">
+          <label style="grid-column:1/-1">Watchlist (comma-separated tickers)
+            <input name="tickers" id="watchlist-input" placeholder="SPY, QQQ, NVDA, AAPL" required>
+          </label>
+          <label style="align-self:end"><button class="btn primary block" type="submit">Save watchlist</button></label>
+        </form>
+        <div class="feed" id="signals-feed"></div>
+      </div>
+      <div class="card">
+        <h2>TradingView (optional)</h2>
+        <p class="sub">Prefer chart alerts from TradingView? That requires a <strong>paid</strong> plan with webhooks. Use the <strong>TV</strong> tab to set it up — or stay on free built-in signals above.</p>
+      </div>
+    </section>
+
     <section class="panel" data-panel="strategies">
       <div class="card">
         <h2>Strategies</h2>
@@ -114,10 +139,10 @@
 
     <section class="panel" data-panel="tv">
       <div class="card">
-        <h2>TradingView connection</h2>
+        <h2>TradingView connection <span class="pill" style="font-size:11px">optional · paid plan</span></h2>
         <p class="sub">
-          TradingView does not offer third-party login for execution apps. You sign in on TradingView directly,
-          then link your username here and paste the webhook URL + Pine script into your alerts.
+          TradingView webhooks require a paid subscription. For a free path, use <strong>Signals</strong> tab
+          (built-in scanner). If you already have TradingView Pro+, link your username here and paste the webhook URL + Pine script into alerts.
         </p>
         <div class="btn-row" style="margin-bottom:10px">
           <span class="pill" id="tv-status">Setup required</span>
@@ -176,6 +201,7 @@
 
   <nav class="bottom-nav" aria-label="Main">
     <button class="nav-btn active" data-nav="home" type="button"><span class="icon">🏠</span>Home</button>
+    <button class="nav-btn" data-nav="signals" type="button"><span class="icon">📡</span>Signals</button>
     <button class="nav-btn" data-nav="ai" type="button"><span class="icon">🤖</span>AI</button>
     <button class="nav-btn" data-nav="strategies" type="button"><span class="icon">📋</span>Plans</button>
     <button class="nav-btn" data-nav="tv" type="button"><span class="icon">📈</span>TV</button>
