@@ -1,0 +1,41 @@
+//@version=5
+// Day-trading signal for the options agent webhook.
+//
+// Setup: apply to a 5-minute chart of a liquid optionable name (SPY, QQQ,
+// NVDA, TSLA, AAPL...). Create ONE alert on this indicator with condition
+// "Any alert() function call", paste your webhook URL
+// (https://<your-tunnel>/webhook/tradingview), and leave the message field
+// empty — the alert() calls below send the JSON payload.
+//
+// Replace REPLACE_WITH_YOUR_SECRET with the value of your server's
+// TRADINGVIEW_WEBHOOK_SECRET environment variable.
+indicator("Options Agent - Day Signal", overlay=true)
+
+secret = "REPLACE_WITH_YOUR_SECRET"
+
+emaFast = ta.ema(close, 9)
+emaSlow = ta.ema(close, 21)
+vwap = ta.vwap(hlc3)
+
+plot(emaFast, "EMA 9", color=color.new(color.teal, 0))
+plot(emaSlow, "EMA 21", color=color.new(color.orange, 0))
+plot(vwap, "VWAP", color=color.new(color.purple, 0))
+
+// Long: fast EMA crosses above slow EMA while price holds above VWAP.
+// Short: the mirror image. VWAP filter cuts chop-driven whipsaws.
+longSignal = ta.crossover(emaFast, emaSlow) and close > vwap
+shortSignal = ta.crossunder(emaFast, emaSlow) and close < vwap
+
+plotshape(longSignal, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortSignal, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+payload(sig) =>
+    '{"secret":"' + secret + '","ticker":"' + syminfo.ticker + '","signal":"' + sig +
+     '","mode":"day","price":' + str.tostring(close) + ',"interval":"' + timeframe.period +
+     '","time":"' + str.format_time(time, "yyyy-MM-dd HH:mm", "America/New_York") +
+     '","note":"EMA9/21 cross with VWAP filter"}'
+
+if longSignal
+    alert(payload("buy"), alert.freq_once_per_bar_close)
+if shortSignal
+    alert(payload("sell"), alert.freq_once_per_bar_close)

@@ -1,0 +1,191 @@
+# TradingView AI Agent — Multi-Agent LLM Options Trading
+
+An AI options-trading system for **day trading** and **swing trading**, built on top of
+[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)
+(Apache-2.0). The upstream framework's analyst/researcher/risk agent teams
+produce a directional view on the underlying; this repo adds an **options
+layer** that turns that view into concrete, defined-risk option positions and
+paper-trades them, driven either from the CLI or by **TradingView alerts**
+via webhook.
+
+> ⚠️ **Paper trading / research only.** Nothing here is financial advice.
+> Options can lose 100% of the premium (and defined-risk spreads their full
+> width) very quickly, especially at short DTE. Test extensively on paper
+> before risking anything, and understand that LLM output is
+> non-deterministic and can be wrong.
+
+## What's in the box
+
+```
+tradingagents/    Upstream multi-agent research framework (vendored, Apache-2.0)
+cli/              Upstream interactive CLI (tradingagents command)
+optionsagents/    NEW: the options trading layer
+  modes.py          Day vs swing presets (DTE window, delta band, risk, exits)
+  chain.py          Options chain snapshots, IV/expected-move metrics, liquidity filters
+  greeks.py         Black-Scholes pricing, greeks, implied vol (stdlib only)
+  strategist.py     LLM Options Strategist agent (structured output + fallback)
+  paper_broker.py   Local paper account: mid fills, slippage, stops/targets, JSON ledger
+  pipeline.py       Research -> chain -> strategist -> risk gate -> paper fill
+  webhook_server.py FastAPI server for TradingView alert webhooks
+  cli.py            optionsagents / run_options.py command line
+pine/             TradingView Pine Script alert templates (day + swing)
+tests/            Offline unit tests for the options layer
+docs/UPSTREAM_README.md   Original TradingAgents README
+```
+
+## How a trade happens
+
+```
+TradingView alert or CLI
+        │
+        ▼
+┌─ Full research path (swing) ─────────────────────────────┐
+│ Market / News / Sentiment / Fundamentals analysts        │
+│   -> Bull vs Bear researcher debate -> Research Manager  │
+│   -> Trader -> Risk team -> Portfolio Manager rating     │
+└──────────────────────────────────────────────────────────┘
+        │  Buy / Overweight -> bullish · Sell / Underweight -> bearish · Hold -> stand aside
+        ▼
+Options chain snapshot (yfinance): spot, ATM IV, expected move,
+put/call ratios, liquid strikes inside the mode's delta band
+        ▼
+Options Strategist (LLM) picks ONE defined-risk structure:
+long call/put, or a vertical debit/credit spread — or no_trade
+        ▼
+Risk gate: max loss per position enforced, contracts clamped,
+illiquid chains rejected, max open positions respected
+        ▼
+Paper broker: fills at mid ± slippage, tracks P&L, applies
+profit-target / stop-loss / expiry exits, journals every event
+```
+
+The **day-trading fast path** (`signal buy|sell`) skips the multi-agent
+debate — a scalp setup is gone in minutes — and goes straight from the
+TradingView signal to the strategist. The **swing path** (`analyze`) runs the
+full research pipeline first and only trades if the researched direction
+agrees with a tradable setup.
+
+| Mode | DTE window | \|Delta\| band | Max risk/trade | Target / Stop | Liquidity gates |
+|---|---|---|---|---|---|
+| `day` | 0–5 | 0.45–0.70 | $500 | +50% / −30% of risk | OI ≥ 500, spread ≤ 10% |
+| `swing` | 14–60 | 0.30–0.60 | $1,000 | +100% / −50% of risk | OI ≥ 100, spread ≤ 15% |
+
+Tune these in `optionsagents/modes.py` or via `get_mode("day", max_risk_per_trade=250)`.
+
+## Setup
+
+```bash
+git clone https://github.com/manwayvan/Tradingview-AI-Agent.git
+cd Tradingview-AI-Agent
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+cp .env.example .env
+# Edit .env: set at least one LLM key (OPENAI_API_KEY / ANTHROPIC_API_KEY /
+# GOOGLE_API_KEY, ...) and TRADINGVIEW_WEBHOOK_SECRET
+```
+
+Market and options-chain data come from yfinance by default (no key needed).
+
+## Usage
+
+```bash
+# Swing trade: full multi-agent research, then an options position on paper
+python run_options.py analyze NVDA --mode swing
+
+# Day trade fast path: act on a directional signal immediately
+python run_options.py signal SPY buy --mode day
+
+# No LLM at all (deterministic strike selection; good for a dry run)
+python run_options.py signal SPY buy --mode day --no-llm
+
+# Account maintenance
+python run_options.py account            # cash, equity, realized/unrealized P&L
+python run_options.py positions          # every position with fills and exits
+python run_options.py mark               # mark-to-market + auto stop/target/expiry exits
+python run_options.py close <positionId> # close at current mid
+
+# The upstream equity research CLI still works as-is
+tradingagents
+```
+
+Run `python run_options.py mark` periodically while positions are open (cron
+it every few minutes during market hours for day trades) — that's what
+enforces stops, targets, and expiry closes.
+
+## TradingView integration (paper testing)
+
+TradingView does not expose a public order-execution API — its built-in Paper
+Trading account can't be driven programmatically. So the integration works in
+the direction TradingView *does* support, **outbound alerts → your webhook**,
+and execution is simulated in the local paper broker, which mimics a paper
+account (mid-price fills with slippage, full ledger). The trade journal gives
+you everything needed to mirror positions in TradingView's own Paper Trading
+panel if you want a side-by-side comparison.
+
+1. **Run the webhook server** (TradingView requires a public HTTPS URL, port 80/443):
+   ```bash
+   export TRADINGVIEW_WEBHOOK_SECRET="some-long-random-string"
+   python run_options.py serve --port 8000
+   # in another terminal, for local testing:
+   ngrok http 8000
+   ```
+2. **Add a signal script in TradingView**: open the Pine Editor, paste
+   `pine/day_trade_signal.pine` (5-minute chart) or
+   `pine/swing_trade_signal.pine` (daily chart), and replace
+   `REPLACE_WITH_YOUR_SECRET` with your secret.
+3. **Create one alert** on the indicator with condition **"Any alert()
+   function call"**, and set the webhook URL to
+   `https://<your-tunnel>/webhook/tradingview`. The scripts send the JSON
+   payload themselves; leave the message box alone.
+4. Alerts now flow: day signals open paper trades within seconds; swing
+   signals kick off the full research pipeline first (takes a few minutes).
+
+Server endpoints: `GET /health`, `GET /account`, `GET /positions`,
+`GET /journal`, `POST /positions/check` (mark + exits),
+`POST /positions/{id}/close`, `POST /webhook/tradingview`.
+
+Alert payload shape (what the Pine templates send):
+
+```json
+{"secret": "...", "ticker": "NVDA", "signal": "buy", "mode": "day",
+ "price": 512.30, "interval": "5", "note": "EMA9/21 cross with VWAP filter"}
+```
+
+`signal` may be `buy`, `sell`, or `analyze` (full research). Exchange
+prefixes like `NASDAQ:NVDA` are stripped automatically.
+
+## Safety rails
+
+- **Defined-risk only** — long options and vertical spreads; naked short
+  options are not even representable in the plan schema.
+- **Hard risk cap per position** — the risk gate clamps contract count to the
+  mode's max loss, and rejects trades where a single contract exceeds it.
+- **Liquidity filters** — strikes must clear open-interest and bid-ask-spread
+  gates before the strategist ever sees them; illiquid chains become `no_trade`.
+- **Validated plans** — every LLM-proposed leg is checked against the real
+  chain (strike/expiry must exist with a usable quote); invalid plans fall
+  back to deterministic selection or no trade.
+- **Automatic exits** — profit target, stop loss, and expiry-day closes are
+  enforced by `mark` / `POST /positions/check`.
+- **Authenticated webhook** — requests must carry the shared secret
+  (constant-time compared); the server refuses to start trading without one.
+
+## Tests
+
+```bash
+pytest tests/test_options_greeks.py tests/test_options_chain.py \
+       tests/test_paper_broker.py tests/test_options_schemas.py \
+       tests/test_options_pipeline.py -q
+```
+
+All options-layer tests are offline (synthetic chains, no LLM, no network).
+
+## Attribution
+
+The `tradingagents/`, `cli/`, and original `tests/` code is from
+[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents),
+used under the Apache License 2.0 (see `LICENSE`); their original README is
+preserved at `docs/UPSTREAM_README.md`. If you use the research framework in
+academic work, cite their paper: [TradingAgents: Multi-Agents LLM Financial
+Trading Framework](https://arxiv.org/abs/2412.20138).

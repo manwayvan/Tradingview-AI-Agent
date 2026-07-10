@@ -1,0 +1,38 @@
+//@version=5
+// Swing-trading signal for the options agent webhook.
+//
+// Setup: apply to a DAILY chart. Create ONE alert with condition
+// "Any alert() function call" and your webhook URL. This signal uses
+// "analyze" mode: instead of trading the raw cross, it asks the server to
+// run the full multi-agent research pipeline (analysts -> bull/bear debate
+// -> risk team) and trade only if the researched direction agrees.
+//
+// Replace REPLACE_WITH_YOUR_SECRET with your TRADINGVIEW_WEBHOOK_SECRET.
+indicator("Options Agent - Swing Signal", overlay=true)
+
+secret = "REPLACE_WITH_YOUR_SECRET"
+
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+rsi = ta.rsi(close, 14)
+
+plot(ema20, "EMA 20", color=color.new(color.teal, 0))
+plot(ema50, "EMA 50", color=color.new(color.orange, 0))
+
+// Trend cross with an RSI sanity band: skip signals fired into
+// already-stretched conditions.
+longSetup = ta.crossover(ema20, ema50) and rsi < 70
+shortSetup = ta.crossunder(ema20, ema50) and rsi > 30
+
+plotshape(longSetup, "Bullish setup", shape.triangleup, location.belowbar, color.green)
+plotshape(shortSetup, "Bearish setup", shape.triangledown, location.abovebar, color.red)
+
+payload(note) =>
+    '{"secret":"' + secret + '","ticker":"' + syminfo.ticker +
+     '","signal":"analyze","mode":"swing","price":' + str.tostring(close) +
+     ',"interval":"' + timeframe.period + '","note":"' + note + '"}'
+
+if longSetup
+    alert(payload("Daily EMA20/50 bullish cross, RSI " + str.tostring(rsi, "#.#")), alert.freq_once_per_bar_close)
+if shortSetup
+    alert(payload("Daily EMA20/50 bearish cross, RSI " + str.tostring(rsi, "#.#")), alert.freq_once_per_bar_close)
