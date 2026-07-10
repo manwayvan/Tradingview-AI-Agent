@@ -56,7 +56,7 @@ include = ["tradingagents*", "cli*", "optionsagents*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]
-optionsagents = ["static/*"]
+optionsagents = ["static/*", "static/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -85,6 +85,7 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]   # intentional re-exports
+"optionsagents/webapp/api.py" = ["B008"]  # FastAPI Depends() in defaults
 
 [tool.ruff.lint.isort]
 # Keep multiple aliased names from one module in a single combined import block

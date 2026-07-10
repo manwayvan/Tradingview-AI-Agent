@@ -1,0 +1,312 @@
+"""Authenticated API routes and auth endpoints."""
+
+from __future__ import annotations
+
+import hmac
+import logging
+import os
+from dataclasses import asdict
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, Field, ValidationError
+
+from optionsagents.schemas import TradingViewAlert
+from optionsagents.webapp.auth import (
+    User,
+    authenticate,
+    clear_session_cookie,
+    create_session,
+    create_user,
+    delete_session,
+    get_user_by_webhook_secret,
+    regenerate_webhook_secret,
+    require_user,
+    set_session_cookie,
+    update_tradingview,
+)
+from optionsagents.webapp.tradingview import pine_script_for_user, tradingview_setup_steps
+from optionsagents.webapp.workspaces import UserWorkspace, get_workspace_manager
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+def _base_url(request: Request) -> str:
+    configured = os.environ.get("OPTIONS_PUBLIC_URL", "").strip()
+    if configured:
+        return configured.rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+def _ws(user: User, request: Request) -> UserWorkspace:
+    return get_workspace_manager().get(user)
+
+
+class SignupRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(default="", max_length=80)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class TradingViewConnectRequest(BaseModel):
+    tradingview_username: str = Field(min_length=1, max_length=64)
+    confirm: bool = False
+
+
+class StrategyRequest(BaseModel):
+    ticker: str = Field(min_length=1, max_length=12)
+    mode: str = Field(pattern="^(day|swing)$")
+    trigger: str = Field(pattern="^(daily|interval|webhook)$")
+    signal: str = Field(default="analyze", pattern="^(analyze|buy|sell)$")
+    run_time: str = Field(default="10:00", pattern=r"^\d{1,2}:\d{2}$")
+    interval_minutes: int = Field(default=60, ge=5, le=390)
+
+
+@router.get("/api/auth/me")
+def auth_me(request: Request, user: User = Depends(require_user)) -> dict:
+    ws = _ws(user, request)
+    return {
+        "user": user.to_public_dict(_base_url(request)),
+        "has_open_positions": bool(ws.broker.positions("open")),
+    }
+
+
+@router.post("/api/auth/signup")
+def auth_signup(req: SignupRequest, response: Response, request: Request) -> dict:
+    try:
+        user = create_user(req.email, req.password, req.display_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    token = create_session(user.id)
+    set_session_cookie(response, token)
+    get_workspace_manager().get(user)
+    return {"user": user.to_public_dict(_base_url(request)), "ok": True}
+
+
+@router.post("/api/auth/login")
+def auth_login(req: LoginRequest, response: Response, request: Request) -> dict:
+    user = authenticate(req.email, req.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="invalid email or password")
+    token = create_session(user.id)
+    set_session_cookie(response, token)
+    get_workspace_manager().get(user)
+    return {"user": user.to_public_dict(_base_url(request)), "ok": True}
+
+
+@router.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response, user: User = Depends(require_user)) -> dict:
+    from optionsagents.webapp.auth import SESSION_COOKIE
+
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        delete_session(token)
+    clear_session_cookie(response)
+    return {"ok": True}
+
+
+@router.get("/api/state")
+def state(request: Request, user: User = Depends(require_user)) -> dict:
+    ws = _ws(user, request)
+    snap = ws.snapshot_state()
+    return {
+        **snap,
+        "user": user.to_public_dict(_base_url(request)),
+        "webhook_secret_set": bool(user.webhook_secret),
+    }
+
+
+@router.get("/api/tradingview/setup")
+def tv_setup(request: Request, user: User = Depends(require_user)) -> dict:
+    base = _base_url(request)
+    webhook_url = f"{base}/webhook/tradingview"
+    return {
+        "user": user.to_public_dict(base),
+        "webhook_secret": user.webhook_secret,
+        "steps": tradingview_setup_steps(webhook_url),
+        "pine_day": pine_script_for_user(user.webhook_secret, "day"),
+        "pine_swing": pine_script_for_user(user.webhook_secret, "swing"),
+    }
+
+
+@router.post("/api/tradingview/connect")
+def tv_connect(
+    req: TradingViewConnectRequest,
+    request: Request,
+    user: User = Depends(require_user),
+) -> dict:
+    updated = update_tradingview(
+        user.id, req.tradingview_username, mark_connected=req.confirm,
+    )
+    get_workspace_manager().get(updated)
+    return {"user": updated.to_public_dict(_base_url(request))}
+
+
+@router.post("/api/tradingview/regenerate-secret")
+def tv_regenerate(request: Request, user: User = Depends(require_user)) -> dict:
+    updated = regenerate_webhook_secret(user.id)
+    get_workspace_manager().get(updated)
+    return {
+        "user": updated.to_public_dict(_base_url(request)),
+        "pine_day": pine_script_for_user(updated.webhook_secret, "day"),
+        "pine_swing": pine_script_for_user(updated.webhook_secret, "swing"),
+    }
+
+
+@router.post("/api/strategies")
+def add_strategy(req: StrategyRequest, request: Request, user: User = Depends(require_user)) -> dict:
+    strat = _ws(user, request).engine.add(
+        ticker=req.ticker.strip().upper(),
+        mode=req.mode,
+        trigger=req.trigger,
+        signal=req.signal,
+        run_time=req.run_time,
+        interval_minutes=req.interval_minutes,
+    )
+    return asdict(strat)
+
+
+@router.delete("/api/strategies/{strategy_id}")
+def delete_strategy(strategy_id: str, request: Request, user: User = Depends(require_user)) -> dict:
+    if not _ws(user, request).engine.remove(strategy_id):
+        raise HTTPException(status_code=404, detail="unknown strategy")
+    return {"deleted": strategy_id}
+
+
+@router.post("/api/strategies/{strategy_id}/toggle")
+def toggle_strategy(strategy_id: str, request: Request, user: User = Depends(require_user)) -> dict:
+    engine = _ws(user, request).engine
+    strat = engine.get(strategy_id)
+    if strat is None:
+        raise HTTPException(status_code=404, detail="unknown strategy")
+    engine.set_enabled(strategy_id, not strat.enabled)
+    return {"id": strategy_id, "enabled": strat.enabled}
+
+
+@router.post("/api/strategies/{strategy_id}/run")
+def run_strategy_now(strategy_id: str, request: Request, user: User = Depends(require_user)) -> dict:
+    if not _ws(user, request).engine.run_now(strategy_id):
+        raise HTTPException(status_code=409, detail="strategy missing or already running")
+    return {"started": strategy_id}
+
+
+@router.get("/api/autonomous")
+def autonomous_state(request: Request, user: User = Depends(require_user)) -> dict:
+    ws = _ws(user, request)
+    return ws.orchestrator.snapshot(broker=ws.broker)
+
+
+@router.post("/api/autonomous/toggle")
+def toggle_autonomous(request: Request, user: User = Depends(require_user)) -> dict:
+    ws = _ws(user, request)
+    ws.set_autonomous(not ws.user.autonomous_enabled)
+    return {"enabled": ws.user.autonomous_enabled}
+
+
+@router.post("/api/autonomous/run")
+def run_autonomous_now(request: Request, user: User = Depends(require_user)) -> dict:
+    if not _ws(user, request).orchestrator.run_now():
+        raise HTTPException(status_code=409, detail="cycle already running")
+    return {"started": True}
+
+
+@router.get("/account")
+def account(request: Request, user: User = Depends(require_user)) -> dict:
+    return _ws(user, request).broker.summary()
+
+
+@router.get("/positions")
+def positions(request: Request, user: User = Depends(require_user), status: str | None = None) -> list[dict]:
+    return [asdict(p) for p in _ws(user, request).broker.positions(status)]
+
+
+@router.get("/journal")
+def journal(request: Request, user: User = Depends(require_user), limit: int = 50) -> list[dict]:
+    return _ws(user, request).broker._state["journal"][-limit:]
+
+
+@router.post("/positions/check")
+def check_positions(request: Request, user: User = Depends(require_user)) -> dict:
+    closed = _ws(user, request).check_positions()
+    return {
+        "closed": [
+            {"id": p.id, "underlying": p.underlying, "pnl": p.realized_pnl, "reason": p.exit_reason}
+            for p in closed
+        ]
+    }
+
+
+@router.post("/positions/{position_id}/close")
+def close_position(position_id: str, request: Request, user: User = Depends(require_user)) -> dict:
+    ws = _ws(user, request)
+    pos = ws.broker.get_position(position_id)
+    if pos is None or pos.status != "open":
+        raise HTTPException(status_code=404, detail=f"no open position {position_id}")
+    pipeline = ws.get_pipeline("day")
+    snapshot = pipeline._snapshot_for_positions(pos.underlying, [pos])
+    net = ws.broker.mark_position(pos, snapshot)
+    if net is None:
+        raise HTTPException(status_code=409, detail="no quotes available to price the close")
+    closed = ws.broker.close_position(pos.id, net, reason="manual")
+    return {"id": closed.id, "pnl": closed.realized_pnl, "exit_net": closed.exit_net}
+
+
+def _run_alert_for_workspace(ws: UserWorkspace, alert: TradingViewAlert) -> None:
+    try:
+        pipeline = ws.get_pipeline(alert.mode)
+        if alert.signal in ("buy", "sell"):
+            context = (
+                f"TradingView alert: {alert.signal.upper()} {alert.ticker}"
+                + (f" at {alert.price}" if alert.price else "")
+                + (f" on the {alert.interval} chart" if alert.interval else "")
+                + (f". Note: {alert.note}" if alert.note else "")
+            )
+            result = pipeline.run_signal(alert.ticker, alert.signal, context)
+        else:
+            result = pipeline.run(alert.ticker)
+        logger.info(
+            "user %s alert %s %s -> %s",
+            ws.user.id, alert.ticker, alert.signal, result.plan.strategy.value,
+        )
+    except Exception:
+        logger.exception("alert failed for user %s ticker %s", ws.user.id, alert.ticker)
+
+
+def resolve_webhook_workspace(secret: str):
+    """Return workspace for a webhook secret, or None."""
+    user = get_user_by_webhook_secret(secret)
+    if user:
+        return get_workspace_manager().get(user)
+
+    expected = os.environ.get("TRADINGVIEW_WEBHOOK_SECRET", "")
+    if expected and hmac.compare_digest(secret or "", expected):
+        from optionsagents.webapp.legacy import get_legacy_workspace
+        return get_legacy_workspace()
+    return None
+
+
+@router.post("/webhook/tradingview")
+async def tradingview_webhook(payload: dict, background: BackgroundTasks) -> dict:
+    try:
+        alert = TradingViewAlert.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+    ws = resolve_webhook_workspace(alert.secret)
+    if ws is None:
+        raise HTTPException(status_code=401, detail="invalid webhook secret")
+
+    background.add_task(_run_alert_for_workspace, ws, alert)
+    return {
+        "accepted": True,
+        "ticker": alert.ticker,
+        "signal": alert.signal,
+        "mode": alert.mode,
+        "detail": "processing in background",
+    }

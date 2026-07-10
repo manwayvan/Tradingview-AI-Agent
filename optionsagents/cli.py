@@ -123,18 +123,10 @@ def cmd_serve(args) -> int:
 
 
 def cmd_autonomous(args) -> int:
-    from optionsagents.autonomous.brain import StrategyBrain
     from optionsagents.autonomous.config import AutonomousConfig
     from optionsagents.autonomous.market_context import build_market_context
-    from optionsagents.autonomous.orchestrator import AutonomousOrchestrator
     from optionsagents.autonomous.scanner import MarketScanner
-    from optionsagents.webhook_server import (
-        _execute_autonomous_trade,
-        _memory_context,
-        _open_tickers,
-        get_broker,
-        get_orchestrator,
-    )
+    from optionsagents.webapp.legacy import get_broker, get_orchestrator
 
     os.environ.setdefault("OPTIONS_ACCOUNT_FILE", args.account_file)
     config = AutonomousConfig.from_env()
@@ -153,15 +145,8 @@ def cmd_autonomous(args) -> int:
         return 0
 
     if args.autonomous_cmd == "run":
-        orch = AutonomousOrchestrator(
-            execute_trade=_execute_autonomous_trade,
-            get_portfolio_summary=lambda: get_broker().summary(),
-            get_open_tickers=_open_tickers,
-            get_broker=get_broker,
-            config=config.with_overrides(enabled=True),
-            brain=StrategyBrain(None),
-            memory_context_fn=_memory_context,
-        )
+        orch = get_orchestrator()
+        orch.set_enabled(True)
         orch._run_cycle()
         snap = orch.snapshot(broker=get_broker())
         print(json.dumps(snap.get("last_result"), indent=2))

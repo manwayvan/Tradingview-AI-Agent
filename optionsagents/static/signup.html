@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <title>Create account — Options AI Agent</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="auth-page">
+  <div class="auth-card">
+    <h1>Create your account</h1>
+    <p>Get a personal paper account, AI brain, and TradingView webhook in minutes.</p>
+    <form id="auth-form">
+      <div class="field">
+        <label for="display_name">Display name (optional)</label>
+        <input id="display_name" name="display_name" type="text" maxlength="80" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="password">Password (8+ characters)</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+      </div>
+      <button class="btn primary block" type="submit">Create account</button>
+      <p class="err" id="auth-error"></p>
+    </form>
+    <p style="margin-top:16px;font-size:14px;color:var(--text-secondary)">
+      Already have an account? <a href="/login">Sign in</a>
+    </p>
+  </div>
+  <script src="/assets/app.js"></script>
+  <script>App.initAuthPage("signup");</script>
+</body>
+</html>

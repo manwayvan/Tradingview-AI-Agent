@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#2563eb">
+  <title>Options AI Agent</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div>
+      <h1>Options AI</h1>
+      <div class="pills">
+        <span class="pill" id="pill-engine">engine</span>
+        <span class="pill" id="pill-auto">AI</span>
+        <span class="pill" id="pill-market">market</span>
+        <span class="pill" id="pill-updated">…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="content">
+    <div id="toast" class="banner hidden" role="status"></div>
+
+    <section class="panel active" data-panel="home">
+      <div class="banner" id="tv-banner">
+        Connect TradingView in the <strong>TV</strong> tab to receive live alert signals on mobile and desktop.
+      </div>
+      <div class="tiles" id="home-tiles"></div>
+
+      <div class="card">
+        <h2>Open positions</h2>
+        <div class="mobile-cards" id="open-cards"></div>
+        <div class="desktop-table tablewrap">
+          <table id="open-table">
+            <thead><tr><th>Ticker</th><th>Strategy</th><th>Legs</th><th>Entry</th><th>Mark</th><th>P&amp;L</th><th>Risk</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty" id="open-empty">No open positions.</div>
+      </div>
+
+      <div class="card">
+        <h2>Closed positions</h2>
+        <div class="tablewrap">
+          <table id="closed-table">
+            <thead><tr><th>Ticker</th><th>Strategy</th><th>Opened</th><th>Closed</th><th>P&amp;L</th><th>Reason</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty" id="closed-empty">Nothing closed yet.</div>
+      </div>
+
+      <div class="card">
+        <h2>Activity</h2>
+        <div class="feed" id="activity-feed"></div>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="ai">
+      <div class="card">
+        <h2>Autonomous AI brain</h2>
+        <p class="sub">Scans the market, picks strategies, and executes paper trades automatically during market hours.</p>
+        <div class="btn-row" style="margin-bottom:12px">
+          <button class="btn primary" id="btn-auto-toggle">Enable AI brain</button>
+          <button class="btn" id="btn-auto-run">Run cycle now</button>
+        </div>
+        <div class="tiles" id="auto-tiles"></div>
+        <p class="sub" id="auto-status"></p>
+        <div class="feed" id="auto-feed"></div>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="strategies">
+      <div class="card">
+        <h2>Strategies</h2>
+        <form id="add-form" class="form-grid" style="margin-bottom:12px">
+          <label>Ticker<input name="ticker" placeholder="NVDA" required maxlength="12" style="text-transform:uppercase"></label>
+          <label>Action
+            <select name="signal">
+              <option value="analyze">analyze</option>
+              <option value="buy">buy</option>
+              <option value="sell">sell</option>
+            </select>
+          </label>
+          <label>Mode
+            <select name="mode"><option value="swing">swing</option><option value="day">day</option></select>
+          </label>
+          <label>Trigger
+            <select name="trigger" id="trigger-select">
+              <option value="daily">daily</option>
+              <option value="interval">interval</option>
+              <option value="webhook">webhook</option>
+            </select>
+          </label>
+          <label id="lbl-time">Time (ET)<input name="run_time" type="time" value="10:00"></label>
+          <label id="lbl-interval" class="hidden">Minutes<input name="interval_minutes" type="number" value="60" min="5" max="390"></label>
+          <label style="align-self:end"><button class="btn primary block" type="submit">Add</button></label>
+        </form>
+        <div class="tablewrap">
+          <table id="strat-table">
+            <thead><tr><th>Ticker</th><th>Action</th><th>Mode</th><th>Schedule</th><th>Last</th><th>Result</th><th>Status</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty" id="strat-empty">No strategies yet.</div>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="tv">
+      <div class="card">
+        <h2>TradingView connection</h2>
+        <p class="sub">
+          TradingView does not offer third-party login for execution apps. You sign in on TradingView directly,
+          then link your username here and paste the webhook URL + Pine script into your alerts.
+        </p>
+        <div class="btn-row" style="margin-bottom:10px">
+          <span class="pill" id="tv-status">Setup required</span>
+          <span class="pill">User: <span id="tv-username">—</span></span>
+        </div>
+        <form id="tv-connect-form" class="form-grid" style="margin-bottom:14px">
+          <label>TradingView username<input name="tradingview_username" placeholder="your_tv_username" required maxlength="64"></label>
+          <label style="align-self:end;display:flex;align-items:center;gap:8px;font-size:13px">
+            <input type="checkbox" name="confirm" value="1"> Alerts configured
+          </label>
+          <label style="align-self:end"><button class="btn primary block" type="submit">Save / confirm</button></label>
+        </form>
+        <div class="step">
+          <h3>Your webhook URL</h3>
+          <div class="codebox" id="tv-webhook-url"></div>
+          <button class="btn sm" id="btn-copy-url" type="button" style="margin-top:8px">Copy URL</button>
+        </div>
+        <div class="step">
+          <h3>Your personal secret (embed in Pine)</h3>
+          <div class="codebox" id="tv-secret"></div>
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn sm" id="btn-copy-secret" type="button">Copy secret</button>
+            <button class="btn sm danger" id="btn-regen-secret" type="button">Regenerate</button>
+          </div>
+        </div>
+        <div id="tv-steps"></div>
+        <div class="step">
+          <h3>Day-trade Pine script</h3>
+          <div class="codebox" id="pine-day" style="max-height:180px;overflow:auto"></div>
+          <button class="btn sm" id="btn-copy-pine-day" type="button" style="margin-top:8px">Copy day script</button>
+        </div>
+        <div class="step">
+          <h3>Swing Pine script</h3>
+          <div class="codebox" id="pine-swing" style="max-height:180px;overflow:auto"></div>
+          <button class="btn sm" id="btn-copy-pine-swing" type="button" style="margin-top:8px">Copy swing script</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="account">
+      <div class="card">
+        <h2>Account</h2>
+        <p><strong>Email:</strong> <span id="acct-email">—</span></p>
+        <p><strong>Name:</strong> <span id="acct-name">—</span></p>
+        <p><strong>TradingView:</strong> <span id="acct-tv">—</span> (<span id="acct-tv-status">—</span>)</p>
+        <p class="sub">Each account has an isolated paper ledger and autonomous AI settings.</p>
+        <button class="btn danger" id="btn-logout" type="button">Sign out</button>
+      </div>
+      <div class="card">
+        <h2>Deploy for mobile alerts</h2>
+        <p class="sub">TradingView requires a public HTTPS URL (port 443). Deploy this server to a cloud host and set <code>OPTIONS_PUBLIC_URL</code> to your domain so webhook links copy correctly on phone and PC.</p>
+        <p class="sub">Add to Home Screen on iOS/Android after opening the site in Safari/Chrome for an app-like experience.</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Main">
+    <button class="nav-btn active" data-nav="home" type="button"><span class="icon">🏠</span>Home</button>
+    <button class="nav-btn" data-nav="ai" type="button"><span class="icon">🤖</span>AI</button>
+    <button class="nav-btn" data-nav="strategies" type="button"><span class="icon">📋</span>Plans</button>
+    <button class="nav-btn" data-nav="tv" type="button"><span class="icon">📈</span>TV</button>
+    <button class="nav-btn" data-nav="account" type="button"><span class="icon">👤</span>Account</button>
+  </nav>
+</div>
+<script src="/assets/app.js"></script>
+<script>App.bindAppEvents(); App.initApp();</script>
+</body>
+</html>

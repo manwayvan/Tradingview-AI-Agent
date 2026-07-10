@@ -90,13 +90,32 @@ cp .env.example .env
 
 Market and options-chain data come from yfinance by default (no key needed).
 
-## Quick start: the GUI (recommended)
+## Quick start: the web app (PC + mobile)
 
 ```bash
-python run_options.py serve          # then open http://localhost:8000
+python run_options.py serve
 ```
 
-Everything happens in the dashboard:
+Then open **http://localhost:8000** — you'll land on the sign-in page.
+
+1. **Create an account** (email + password). Each user gets an isolated paper ledger, strategies, and AI brain.
+2. Open the **TV** tab and enter your **TradingView username** (you sign in on tradingview.com separately — TradingView does not offer third-party OAuth for execution apps).
+3. Copy your personal **webhook URL** and **Pine script** (your secret is embedded automatically).
+4. In TradingView: paid plan + 2FA enabled → add the Pine script → create an alert with your webhook URL.
+5. Enable the **Autonomous AI brain** from the AI tab, or add scheduled strategies from Plans.
+
+**Mobile:** open the site in Safari/Chrome and use **Add to Home Screen** for a full-screen app experience. The bottom navigation works on phone and desktop.
+
+**Production deploy:** host on any HTTPS domain (TradingView requires public port 443). Set:
+
+```bash
+export OPTIONS_PUBLIC_URL=https://your-domain.com
+export OPTIONS_COOKIE_SECURE=true
+```
+
+## Quick start: the GUI (legacy single-user)
+
+The same `serve` command now uses account sign-in by default. For CLI-only single-user mode without the web database, use the `analyze` / `signal` commands directly — they still write to `~/.tradingagents/paper_account.json`.
 
 - **Set and forget.** Add a strategy — ticker, action (`analyze` = full
   multi-agent research, or a fixed `buy`/`sell` bias), day or swing mode, and
@@ -153,6 +172,14 @@ python run_options.py autonomous enable
 Tune via environment variables (see `.env.example`): universe, cycle interval,
 max trades per cycle, conviction threshold, daily loss kill switch, and open
 risk cap.
+
+### Web app pages
+
+| URL | Purpose |
+|-----|---------|
+| `/signup` | Create account |
+| `/login` | Sign in |
+| `/app` | Mobile-friendly dashboard (Home, AI, Plans, TradingView, Account) |
 
 ## CLI usage
 
