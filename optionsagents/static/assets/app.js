@@ -207,6 +207,43 @@ function closeOrderDetail() {
   $("#order-detail")?.classList.add("hidden");
 }
 
+function renderStats(stats) {
+  if (!stats) return;
+  const tiles = $("#stats-tiles");
+  if (tiles) {
+    tiles.innerHTML = `
+      <div class="tile"><div class="label">Closed trades</div><div class="value">${stats.total_closed ?? 0}</div><div class="sub">win ${stats.win_rate_pct ?? 0}%</div></div>
+      <div class="tile"><div class="label">Realized P&amp;L</div><div class="value">${pnlHtml(stats.realized_pnl)}</div></div>
+      <div class="tile"><div class="label">Expectancy</div><div class="value">${pnlHtml(stats.expectancy)}</div><div class="sub">per trade</div></div>
+      <div class="tile"><div class="label">Max drawdown</div><div class="value">${fmtUsd(stats.max_drawdown)}</div><div class="sub">${stats.max_drawdown_pct ?? 0}%</div></div>
+      <div class="tile"><div class="label">Avg win</div><div class="value">${pnlHtml(stats.avg_win)}</div><div class="sub">avg loss ${fmtUsd(stats.avg_loss)}</div></div>
+      <div class="tile"><div class="label">Skipped</div><div class="value">${stats.skipped_orders ?? 0}</div><div class="sub">risk/earnings/regime blocks</div></div>`;
+  }
+  const sourceLabels = {
+    free_signal: "Free signals",
+    autonomous: "Autonomous AI",
+    tradingview: "TradingView",
+    strategy: "Scheduled plans",
+    unknown: "Other",
+  };
+  const renderBreakdown = (tableId, data) => {
+    const tbody = $(`${tableId} tbody`);
+    if (!tbody) return;
+    const rows = Object.entries(data || {});
+    tbody.innerHTML = rows.length
+      ? rows.map(([key, row]) => `
+        <tr>
+          <td>${esc(sourceLabels[key] || key)}</td>
+          <td>${row.trades ?? 0}</td>
+          <td>${row.win_rate_pct ?? 0}%</td>
+          <td>${pnlHtml(row.pnl)}</td>
+        </tr>`).join("")
+      : '<tr><td colspan="4" class="muted">No closed trades yet</td></tr>';
+  };
+  renderBreakdown("#stats-source-table", stats.by_source);
+  renderBreakdown("#stats-mode-table", stats.by_mode);
+}
+
 function renderStrategies(engine) {
   const strats = engine?.strategies || [];
   const empty = $("#strat-empty");
@@ -302,7 +339,7 @@ function renderAutonomous(auto) {
   if (st) {
     let txt = auto.last_cycle ? `Last cycle ${auto.last_cycle.slice(0, 16).replace("T", " ")}` : "No cycles yet.";
     if (auto.last_result) txt += ` · opened ${auto.last_result.trades_opened}`;
-    if (risk.kill_switch_active) txt = "Kill switch active — daily loss limit hit.";
+    if (risk.kill_switch_active) txt = "Kill switch active — daily loss limit hit (includes open P&amp;L).";
     st.textContent = txt;
   }
   const feed = $("#auto-feed");
@@ -384,6 +421,7 @@ async function refreshApp() {
   window._state = s;
   renderOrders(s.orders);
   renderPositions(s.positions, s.orders);
+  renderStats(s.stats);
   renderTiles(s.account);
   renderStrategies(s.engine);
   renderSignals(s.free_signals);

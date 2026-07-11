@@ -61,6 +61,8 @@ class ChainSnapshot:
     spot: float
     asof: date
     quotes: list[OptionQuote] = field(default_factory=list)
+    hv_20d: float | None = None
+    iv_rank: float | None = None
 
     def expiries(self) -> list[str]:
         return sorted({q.expiry for q in self.quotes})
@@ -135,6 +137,26 @@ class ChainSnapshot:
         return out
 
 
+def _compute_iv_rank_proxy(closes) -> tuple[float | None, float | None]:
+    """HV20 and its 1-year percentile rank (IV rank proxy)."""
+    import pandas as pd
+
+    if len(closes) < 60:
+        return None, None
+    series = pd.Series(closes)
+    rolling = series.pct_change().rolling(20).std() * (252 ** 0.5)
+    rolling = rolling.dropna()
+    if rolling.empty:
+        return None, None
+    hv_now = float(rolling.iloc[-1])
+    window = rolling.iloc[-252:] if len(rolling) >= 252 else rolling
+    lo, hi = float(window.min()), float(window.max())
+    if hi <= lo:
+        return hv_now, 50.0
+    rank = 100.0 * (hv_now - lo) / (hi - lo)
+    return hv_now, max(0.0, min(100.0, rank))
+
+
 def fetch_chain_snapshot(ticker: str, mode: TradingMode, max_expiries: int = 3) -> ChainSnapshot:
     """Pull a live chain snapshot from yfinance for the mode's DTE window.
 
@@ -150,6 +172,14 @@ def fetch_chain_snapshot(ticker: str, mode: TradingMode, max_expiries: int = 3) 
     if hist.empty:
         raise ValueError(f"No price data for {ticker!r}")
     spot = float(hist["Close"].iloc[-1])
+
+    hv_20d, iv_rank = None, None
+    try:
+        hist_1y = tk.history(period="1y", interval="1d", auto_adjust=True)
+        if not hist_1y.empty and "Close" in hist_1y.columns:
+            hv_20d, iv_rank = _compute_iv_rank_proxy(hist_1y["Close"].tolist())
+    except Exception as exc:
+        logger.debug("%s: could not compute IV rank proxy: %s", ticker, exc)
 
     all_exps = list(tk.options or [])
     in_window = [
@@ -169,7 +199,10 @@ def fetch_chain_snapshot(ticker: str, mode: TradingMode, max_expiries: int = 3) 
                 "%s: no expiries within %d-%d DTE; using nearest available %s",
                 ticker, mode.dte_min, mode.dte_max, in_window[0],
             )
-    snapshot = ChainSnapshot(underlying=ticker.upper(), spot=spot, asof=today)
+    snapshot = ChainSnapshot(
+        underlying=ticker.upper(), spot=spot, asof=today,
+        hv_20d=hv_20d, iv_rank=iv_rank,
+    )
 
     for expiry in in_window[:max_expiries]:
         try:
@@ -197,6 +230,13 @@ def fetch_chain_snapshot(ticker: str, mode: TradingMode, max_expiries: int = 3) 
                     if iv > 0 else 0.0,
                 )
                 snapshot.quotes.append(q)
+
+    atm = snapshot.atm_iv()
+    if atm is not None and snapshot.iv_rank is not None and hv_20d:
+        if atm > hv_20d * 1.15:
+            snapshot.iv_rank = min(100.0, snapshot.iv_rank + 15.0)
+        elif atm < hv_20d * 0.85:
+            snapshot.iv_rank = max(0.0, snapshot.iv_rank - 15.0)
     return snapshot
 
 
@@ -213,6 +253,8 @@ def render_chain_report(snapshot: ChainSnapshot, mode: TradingMode) -> str:
         f"- Trading mode: {mode.name} (target DTE {mode.dte_min}-{mode.dte_max}, "
         f"|delta| {mode.delta_low:.2f}-{mode.delta_high:.2f})",
         f"- ATM implied volatility (nearest expiry): {fmt(snapshot.atm_iv(), '{:.1%}')}",
+        f"- 20-day historical volatility: {fmt(snapshot.hv_20d, '{:.1%}')}",
+        f"- IV rank (volatility percentile): {fmt(snapshot.iv_rank, '{:.0f}%')}",
         f"- Expected move to nearest expiry: {fmt(snapshot.expected_move_pct(), '{:.1f}%')}",
         f"- Put/Call volume ratio: {fmt(snapshot.put_call_volume_ratio())}",
         f"- Put/Call open-interest ratio: {fmt(snapshot.put_call_oi_ratio())}",
@@ -274,11 +316,10 @@ def plan_mid_price(plan: OptionsTradePlan, snapshot: ChainSnapshot) -> float | N
 def build_default_plan(
     direction: str, snapshot: ChainSnapshot, mode: TradingMode
 ) -> OptionsTradePlan:
-    """Deterministic fallback: a single long option at the best candidate strike.
+    """Deterministic fallback when the LLM strategist is unavailable.
 
-    Used when the LLM strategist is unavailable or produced a plan that
-    fails chain validation. Sizing is left at one contract; the pipeline's
-    risk gate scales it.
+    Uses IV rank: credit spreads when vol is high, debit spreads moderate,
+    long options when vol is low.
     """
     if direction not in ("bullish", "bearish"):
         return OptionsTradePlan(
@@ -288,6 +329,11 @@ def build_default_plan(
             rationale="No directional edge; standing aside.",
             confidence=0.0,
         )
+
+    iv_rank = snapshot.iv_rank if snapshot.iv_rank is not None else 25.0
+    width = max(snapshot.spot * 0.025, 2.5)
+    if iv_rank >= 50:
+        return _build_credit_spread(direction, snapshot, mode, width, iv_rank)
     right = "call" if direction == "bullish" else "put"
     cands = snapshot.candidates(mode, right)
     if not cands:
@@ -301,7 +347,21 @@ def build_default_plan(
             ),
             confidence=0.0,
         )
-    q = cands[0]
+
+    long_leg = cands[0]
+    if iv_rank >= 30:
+        return _build_debit_spread(direction, snapshot, mode, long_leg, width, iv_rank)
+    return _build_long_option(direction, snapshot, mode, long_leg, iv_rank)
+
+
+def _build_long_option(
+    direction: str,
+    snapshot: ChainSnapshot,
+    mode: TradingMode,
+    q: OptionQuote,
+    iv_rank: float,
+) -> OptionsTradePlan:
+    right = "call" if direction == "bullish" else "put"
     strat = StrategyType.LONG_CALL if right == "call" else StrategyType.LONG_PUT
     return OptionsTradePlan(
         strategy=strat,
@@ -320,8 +380,138 @@ def build_default_plan(
         stop_loss_pct=mode.stop_loss_pct,
         time_horizon="intraday" if mode.name == "day" else "2-4 weeks",
         rationale=(
-            f"Fallback selection: most liquid {right} inside the {mode.name}-mode "
-            f"delta band (delta {q.delta:+.2f}, OI {q.open_interest})."
+            f"Fallback: long {right} (IV rank {iv_rank:.0f}% — vol relatively low). "
+            f"delta {q.delta:+.2f}, OI {q.open_interest}."
+        ),
+        confidence=0.45,
+    )
+
+
+def _pick_spread_pair(
+    snapshot: ChainSnapshot,
+    mode: TradingMode,
+    right: str,
+    long_leg: OptionQuote,
+    width: float,
+) -> tuple[OptionQuote, OptionQuote] | None:
+    same_exp = [q for q in snapshot.candidates(mode, right) if q.expiry == long_leg.expiry]
+    if len(same_exp) < 2:
+        return None
+    ordered = sorted(same_exp, key=lambda q: q.strike)
+    idx = next(
+        (i for i, q in enumerate(ordered) if abs(q.strike - long_leg.strike) < 1e-6),
+        None,
+    )
+    if idx is None:
+        return None
+    if right == "call":
+        if idx + 1 >= len(ordered):
+            return None
+        return long_leg, ordered[idx + 1]
+    if idx - 1 < 0:
+        return None
+    return long_leg, ordered[idx - 1]
+
+
+def _build_debit_spread(
+    direction: str,
+    snapshot: ChainSnapshot,
+    mode: TradingMode,
+    long_leg: OptionQuote,
+    width: float,
+    iv_rank: float,
+) -> OptionsTradePlan:
+    right = "call" if direction == "bullish" else "put"
+    pair = _pick_spread_pair(snapshot, mode, right, long_leg, width)
+    if pair is None:
+        return _build_long_option(direction, snapshot, mode, long_leg, iv_rank)
+    buy_leg, sell_leg = pair
+    strat = (
+        StrategyType.BULL_CALL_SPREAD if direction == "bullish"
+        else StrategyType.BEAR_PUT_SPREAD
+    )
+    net = max(buy_leg.mid - sell_leg.mid, 0.05)
+    return OptionsTradePlan(
+        strategy=strat,
+        underlying=snapshot.underlying,
+        direction=direction,
+        legs=[
+            OptionLeg(action=LegAction.BUY, right=OptionRight(right), strike=buy_leg.strike, expiry=buy_leg.expiry, contracts=1),
+            OptionLeg(action=LegAction.SELL, right=OptionRight(right), strike=sell_leg.strike, expiry=sell_leg.expiry, contracts=1),
+        ],
+        net_price=round(net, 2),
+        price_type="debit",
+        profit_target_pct=mode.profit_target_pct,
+        stop_loss_pct=mode.stop_loss_pct,
+        time_horizon="intraday" if mode.name == "day" else "2-4 weeks",
+        rationale=(
+            f"Fallback: debit {right} spread (IV rank {iv_rank:.0f}% — moderate vol). "
+            f"Long {buy_leg.strike:g} / short {sell_leg.strike:g}."
+        ),
+        confidence=0.42,
+    )
+
+
+def _build_credit_spread(
+    direction: str,
+    snapshot: ChainSnapshot,
+    mode: TradingMode,
+    width: float,
+    iv_rank: float,
+) -> OptionsTradePlan:
+    if direction == "bullish":
+        right = "put"
+        cands = snapshot.candidates(mode, right)
+        if len(cands) < 2:
+            return OptionsTradePlan(
+                strategy=StrategyType.NO_TRADE,
+                underlying=snapshot.underlying,
+                direction=direction,
+                rationale="Not enough liquid puts for a credit spread fallback.",
+                confidence=0.0,
+            )
+        ordered = sorted(cands, key=lambda q: q.strike, reverse=True)
+        sell_leg, buy_leg = ordered[0], ordered[1]
+        strat = StrategyType.BULL_PUT_SPREAD
+        net = max(sell_leg.mid - buy_leg.mid, 0.05)
+        legs = [
+            OptionLeg(action=LegAction.SELL, right=OptionRight.PUT, strike=sell_leg.strike, expiry=sell_leg.expiry, contracts=1),
+            OptionLeg(action=LegAction.BUY, right=OptionRight.PUT, strike=buy_leg.strike, expiry=buy_leg.expiry, contracts=1),
+        ]
+        label = f"bull put spread {sell_leg.strike:g}/{buy_leg.strike:g}"
+    else:
+        right = "call"
+        cands = snapshot.candidates(mode, right)
+        if len(cands) < 2:
+            return OptionsTradePlan(
+                strategy=StrategyType.NO_TRADE,
+                underlying=snapshot.underlying,
+                direction=direction,
+                rationale="Not enough liquid puts for a credit spread fallback.",
+                confidence=0.0,
+            )
+        ordered = sorted(cands, key=lambda q: q.strike)
+        sell_leg, buy_leg = ordered[0], ordered[1]
+        strat = StrategyType.BEAR_CALL_SPREAD
+        net = max(sell_leg.mid - buy_leg.mid, 0.05)
+        legs = [
+            OptionLeg(action=LegAction.SELL, right=OptionRight.CALL, strike=sell_leg.strike, expiry=sell_leg.expiry, contracts=1),
+            OptionLeg(action=LegAction.BUY, right=OptionRight.CALL, strike=buy_leg.strike, expiry=buy_leg.expiry, contracts=1),
+        ]
+        label = f"bear call spread {sell_leg.strike:g}/{buy_leg.strike:g}"
+
+    return OptionsTradePlan(
+        strategy=strat,
+        underlying=snapshot.underlying,
+        direction=direction,
+        legs=legs,
+        net_price=round(net, 2),
+        price_type="credit",
+        profit_target_pct=mode.profit_target_pct,
+        stop_loss_pct=mode.stop_loss_pct,
+        time_horizon="intraday" if mode.name == "day" else "2-4 weeks",
+        rationale=(
+            f"Fallback: {label} (IV rank {iv_rank:.0f}% — elevated vol, sell premium)."
         ),
         confidence=0.4,
     )

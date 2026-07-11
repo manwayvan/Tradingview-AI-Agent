@@ -73,6 +73,32 @@
       </div>
     </section>
 
+    <section class="panel" data-panel="stats">
+      <div class="card">
+        <h2>Performance</h2>
+        <p class="sub">Track edge by source and mode — positive expectancy means the system is making money on average per closed trade.</p>
+        <div class="tiles" id="stats-tiles"></div>
+        <div class="card" style="margin-top:12px;padding:12px;background:var(--surface-2)">
+          <h3 style="margin:0 0 8px;font-size:15px">By source</h3>
+          <div class="tablewrap">
+            <table id="stats-source-table">
+              <thead><tr><th>Source</th><th>Trades</th><th>Win %</th><th>P&amp;L</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" style="margin-top:12px;padding:12px;background:var(--surface-2)">
+          <h3 style="margin:0 0 8px;font-size:15px">By mode</h3>
+          <div class="tablewrap">
+            <table id="stats-mode-table">
+              <thead><tr><th>Mode</th><th>Trades</th><th>Win %</th><th>P&amp;L</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel" data-panel="ai">
       <div class="card">
         <h2>Autonomous AI brain</h2>
@@ -243,6 +269,7 @@
   <nav class="bottom-nav" aria-label="Main">
     <button class="nav-btn active" data-nav="home" type="button"><span class="icon">🏠</span>Home</button>
     <button class="nav-btn" data-nav="orders" type="button"><span class="icon">📜</span>Orders</button>
+    <button class="nav-btn" data-nav="stats" type="button"><span class="icon">📈</span>Stats</button>
     <button class="nav-btn" data-nav="signals" type="button"><span class="icon">📡</span>Signals</button>
     <button class="nav-btn" data-nav="ai" type="button"><span class="icon">🤖</span>AI</button>
     <button class="nav-btn" data-nav="strategies" type="button"><span class="icon">📋</span>Plans</button>

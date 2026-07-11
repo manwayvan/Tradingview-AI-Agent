@@ -243,6 +243,11 @@ def get_order(order_id: str, request: Request, user: User = Depends(require_user
     return {"order": order.to_dict()}
 
 
+@router.get("/api/stats")
+def performance_stats(request: Request, user: User = Depends(require_user)) -> dict:
+    return {"stats": _ws(user, request).performance_stats()}
+
+
 @router.get("/api/account/settings")
 def account_settings(request: Request, user: User = Depends(require_user)) -> dict:
     ws = _ws(user, request)

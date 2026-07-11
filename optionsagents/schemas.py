@@ -225,6 +225,10 @@ class TradingViewAlert(BaseModel):
     interval: str | None = Field(default=None, description="Chart interval, e.g. '5' or 'D'")
     time: str | None = Field(default=None, description="Alert fire time from TradingView")
     note: str | None = Field(default=None, description="Free-form context from the alert")
+    direction_hint: Literal["bullish", "bearish", "neutral"] | None = Field(
+        default=None,
+        description="Technical direction from swing scanners; biases research when neutral.",
+    )
 
     @field_validator("ticker")
     @classmethod

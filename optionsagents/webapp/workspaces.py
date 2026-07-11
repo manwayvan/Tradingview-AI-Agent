@@ -9,13 +9,14 @@ from dataclasses import asdict, replace
 
 from optionsagents.autonomous.brain import StrategyBrain, TradeDirective
 from optionsagents.autonomous.config import AutonomousConfig
+from optionsagents.autonomous.market_context import build_market_context
 from optionsagents.autonomous.orchestrator import AutonomousOrchestrator
 from optionsagents.autonomous.portfolio_risk import PortfolioRiskManager
 from optionsagents.engine import Strategy, StrategyEngine
 from optionsagents.paper_broker import PaperBroker
 from optionsagents.paths import data_root
 from optionsagents.orders import OrderContext
-from optionsagents.pipeline import OptionsPipeline
+from optionsagents.pipeline import OptionsPipeline, PipelineResult
 from optionsagents.risk import (
     daily_loss_cap,
     mode_for_budget,
@@ -24,6 +25,8 @@ from optionsagents.risk import (
 )
 from optionsagents.schemas import TradingViewAlert
 from optionsagents.signals.free_engine import FreeSignalEngine
+from optionsagents.stats import compute_stats
+from optionsagents.trade_gates import TradeRequest, check_all_gates, direction_from_signal
 from optionsagents.webapp.auth import User, set_autonomous_enabled
 
 logger = logging.getLogger(__name__)
@@ -127,9 +130,104 @@ class UserWorkspace:
         )
 
     def refresh_risk_limits(self) -> None:
-        """Recompute portfolio risk caps after equity or settings change."""
-        self._risk_manager = self._build_risk_manager()
+        """Recompute portfolio risk caps from live equity."""
+        summary = self.broker.summary()
+        equity = summary["equity"]
+        self._risk_manager.refresh_limits(
+            max_daily_loss=daily_loss_cap(equity, self.user.risk_pct_per_trade),
+            max_total_open_risk=portfolio_risk_cap(
+                equity, self.user.max_portfolio_risk_pct,
+            ),
+        )
         self.orchestrator.risk = self._risk_manager
+
+    def _preflight_trade(
+        self,
+        *,
+        ticker: str,
+        mode: str,
+        signal: str,
+        direction: str = "neutral",
+        conviction: float | None = None,
+    ) -> tuple[bool, str]:
+        self.refresh_risk_limits()
+        budget = self.trade_risk_budget(mode)
+        mode_obj = mode_for_budget(mode, budget)
+        request = TradeRequest(
+            ticker=ticker.upper(),
+            mode=mode,
+            signal=signal,
+            direction=direction or direction_from_signal(signal),
+            conviction=conviction,
+        )
+        try:
+            market = build_market_context()
+        except Exception as exc:
+            logger.warning("market context unavailable for gate: %s", exc)
+            market = None
+        verdict = check_all_gates(
+            request,
+            self.broker,
+            self._risk_manager,
+            mode_obj.max_risk_per_trade,
+            market=market,
+        )
+        return verdict.allowed, verdict.reason
+
+    def _record_gate_skip(self, ctx: OrderContext, reason: str) -> None:
+        self.broker.record_order(
+            ctx,
+            status="skipped",
+            plan_rationale=reason,
+            warnings=[reason],
+        )
+        self.broker._save()
+
+    def _execute_pipeline(
+        self,
+        pipeline: OptionsPipeline,
+        *,
+        ticker: str,
+        signal: str,
+        ctx: OrderContext,
+        direction_hint: str | None = None,
+        conviction: float | None = None,
+    ) -> PipelineResult:
+        allowed, reason = self._preflight_trade(
+            ticker=ticker,
+            mode=ctx.mode,
+            signal=signal,
+            direction=ctx.direction or direction_from_signal(signal),
+            conviction=conviction or ctx.conviction,
+        )
+        if not allowed:
+            self._record_gate_skip(ctx, reason)
+            from optionsagents.schemas import OptionsTradePlan, StrategyType
+            plan = OptionsTradePlan(
+                strategy=StrategyType.NO_TRADE,
+                underlying=ticker.upper(),
+                direction="neutral",
+                rationale=reason,
+            )
+            return PipelineResult(
+                ticker=ticker.upper(),
+                mode=ctx.mode,
+                direction=ctx.direction or "neutral",
+                rating=ctx.rating,
+                plan=plan,
+                position=None,
+                chain_report="",
+                decision_context=ctx.decision_context,
+                warnings=[reason],
+            )
+
+        if signal in ("buy", "sell"):
+            return pipeline.run_signal(
+                ticker, signal, context=ctx.decision_context, order_ctx=ctx,
+            )
+        return pipeline.run(
+            ticker, order_ctx=ctx, direction_hint=direction_hint,
+        )
 
     def get_pipeline(self, mode: str) -> OptionsPipeline:
         budget = self.trade_risk_budget(mode)
@@ -147,12 +245,16 @@ class UserWorkspace:
             source_rationale=f"Automated rule: {strat.signal} {strat.ticker} ({strat.describe_schedule()})",
             decision_context=f"Scheduled {strat.signal.upper()} on {strat.ticker} ({strat.describe_schedule()})",
             source_ref=strat.id,
+            direction=direction_from_signal(strat.signal) if strat.signal in ("buy", "sell") else "",
         )
-        if strat.signal in ("buy", "sell"):
-            result = pipeline.run_signal(strat.ticker, strat.signal, context=ctx.decision_context, order_ctx=ctx)
-        else:
-            result = pipeline.run(strat.ticker, order_ctx=ctx)
+        result = self._execute_pipeline(
+            pipeline,
+            ticker=strat.ticker,
+            signal=strat.signal,
+            ctx=ctx,
+        )
         if result.position:
+            self.refresh_risk_limits()
             return (
                 f"opened {result.plan.strategy.value} "
                 f"(id {result.position.id}, max risk ${result.position.max_risk:,.0f})"
@@ -161,7 +263,13 @@ class UserWorkspace:
         return f"no trade — {reason}" if reason else "no trade"
 
     def _check_positions(self) -> list:
-        return self.get_pipeline("day").check_positions()
+        closed = self.get_pipeline("day").check_positions()
+        if closed:
+            self.refresh_risk_limits()
+        return closed
+
+    def performance_stats(self) -> dict:
+        return compute_stats(self.broker, self.broker.list_orders(500))
 
     def _execute_autonomous_trade(self, directive: TradeDirective) -> str:
         pipeline = self.get_pipeline(directive.mode)
@@ -178,14 +286,17 @@ class UserWorkspace:
                 f"{directive.rationale}"
             ),
             conviction=directive.conviction,
+            direction=direction_from_signal(directive.signal) if directive.signal in ("buy", "sell") else "",
         )
-        if directive.signal in ("buy", "sell"):
-            result = pipeline.run_signal(
-                directive.ticker, directive.signal, context=ctx.decision_context, order_ctx=ctx,
-            )
-        else:
-            result = pipeline.run(directive.ticker, order_ctx=ctx)
+        result = self._execute_pipeline(
+            pipeline,
+            ticker=directive.ticker,
+            signal=directive.signal,
+            ctx=ctx,
+            conviction=directive.conviction,
+        )
         if result.position:
+            self.refresh_risk_limits()
             return (
                 f"opened {result.plan.strategy.value} "
                 f"(id {result.position.id}, max risk ${result.position.max_risk:,.0f})"
@@ -207,6 +318,7 @@ class UserWorkspace:
             source = "free_signal" if is_free else "tradingview"
             label = "Free built-in signal" if is_free else "TradingView alert"
             note = alert.note or ""
+            direction = alert.direction_hint or direction_from_signal(alert.signal)
             ctx = OrderContext(
                 source=source,
                 ticker=alert.ticker,
@@ -219,14 +331,22 @@ class UserWorkspace:
                     + (f" at {alert.price}" if alert.price else "")
                     + (f" on the {alert.interval} chart" if alert.interval else "")
                     + (f". {note}" if note else "")
+                    + (
+                        f" Technical bias: {alert.direction_hint}."
+                        if alert.direction_hint else ""
+                    )
                 ),
+                direction=direction if direction != "neutral" else "",
             )
-            if alert.signal in ("buy", "sell"):
-                result = pipeline.run_signal(
-                    alert.ticker, alert.signal, context=ctx.decision_context, order_ctx=ctx,
-                )
-            else:
-                result = pipeline.run(alert.ticker, order_ctx=ctx)
+            result = self._execute_pipeline(
+                pipeline,
+                ticker=alert.ticker,
+                signal=alert.signal,
+                ctx=ctx,
+                direction_hint=alert.direction_hint,
+            )
+            if result.position:
+                self.refresh_risk_limits()
             logger.info(
                 "user %s alert %s %s -> %s",
                 self.user.id, alert.ticker, alert.signal, result.plan.strategy.value,
@@ -280,6 +400,7 @@ class UserWorkspace:
     def snapshot_state(self) -> dict:
         summary = self.broker.summary()
         budget = self.trade_risk_budget()
+        risk_snap = self._risk_manager.snapshot(self.broker)
         return {
             "account": summary,
             "risk": {
@@ -292,7 +413,9 @@ class UserWorkspace:
                 "daily_loss_cap_usd": daily_loss_cap(
                     summary["equity"], self.user.risk_pct_per_trade,
                 ),
+                **risk_snap,
             },
+            "stats": self.performance_stats(),
             "positions": [asdict(p) for p in self.broker.positions()],
             "orders": [o.to_dict() for o in self.broker.list_orders(100)],
             "journal": self.broker._state["journal"][-50:][::-1],

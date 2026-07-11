@@ -142,7 +142,7 @@ def test_portfolio_risk_blocks_daily_loss(tmp_path):
     )
     verdict = risk.check_directive(directive, broker, mode_max_risk=500.0)
     assert not verdict.allowed
-    assert "daily loss" in verdict.reason.lower()
+    assert "kill switch" in verdict.reason.lower()
 
 
 def test_orchestrator_cycle_executes_trades(tmp_path):

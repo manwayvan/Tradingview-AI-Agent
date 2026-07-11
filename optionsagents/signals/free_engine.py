@@ -192,6 +192,7 @@ class FreeSignalEngine:
             price=result.price,
             interval="D",
             note=result.note,
+            direction_hint=result.direction_hint,
         )
         self._event("signal", f"Swing analyze {ticker} ({result.direction_hint}) @ ${result.price:.2f}")
         threading.Thread(target=self._on_signal, args=(alert,), daemon=True).start()

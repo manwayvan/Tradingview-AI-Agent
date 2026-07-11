@@ -137,6 +137,7 @@ class OptionsPipeline:
         ticker: str,
         trade_date: str | None = None,
         order_ctx: OrderContext | None = None,
+        direction_hint: str | None = None,
     ) -> PipelineResult:
         """Full research path: multi-agent debate -> rating -> options trade."""
         trade_date = trade_date or date.today().isoformat()
@@ -146,6 +147,23 @@ class OptionsPipeline:
         decision_context = final_state.get("final_trade_decision", "") or str(rating)
         if order_ctx and order_ctx.decision_context:
             decision_context = f"{order_ctx.decision_context}\n\nResearch result:\n{decision_context}"
+
+        if direction == "neutral" and direction_hint in ("bullish", "bearish"):
+            direction = direction_hint
+            decision_context += (
+                f"\n\nTechnical setup suggests {direction_hint}; "
+                "research was neutral/hold — using technical bias for options plan."
+            )
+        elif (
+            direction_hint in ("bullish", "bearish")
+            and direction in ("bullish", "bearish")
+            and direction != direction_hint
+        ):
+            decision_context += (
+                f"\n\nNote: technical hint ({direction_hint}) differs from "
+                f"research direction ({direction}). Using research rating."
+            )
+
         return self._trade(ticker, direction, decision_context, rating=str(rating), order_ctx=order_ctx)
 
     def run_signal(
