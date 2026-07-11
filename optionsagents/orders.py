@@ -67,6 +67,11 @@ class TradeOrder:
     realized_pnl: float | None = None
     exit_reason: str | None = None
     warnings: list[str] = field(default_factory=list)
+    # Teachable context: what the market looked like at entry, which risk
+    # rules governed the fill, and a plain-English explainer of the structure.
+    chain_conditions: dict[str, Any] = field(default_factory=dict)
+    mode_rules: dict[str, Any] = field(default_factory=dict)
+    strategy_education: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -264,9 +264,18 @@ class OptionsPipeline:
                         conviction=ctx.conviction,
                         source_ref=ctx.source_ref,
                     )
+                mode_rules = {
+                    "mode": self.mode.name,
+                    "dte_window": f"{self.mode.dte_min}-{self.mode.dte_max}",
+                    "delta_band": f"{self.mode.delta_low:.2f}-{self.mode.delta_high:.2f}",
+                    "max_risk_per_trade": self.mode.max_risk_per_trade,
+                    "min_open_interest": self.mode.min_open_interest,
+                    "max_spread_pct": self.mode.max_spread_pct,
+                }
                 try:
                     position = self.broker.execute_plan(
                         plan, snapshot, self.mode.name, order_ctx=ctx,
+                        mode_rules=mode_rules,
                     )
                 except ValueError as exc:
                     warnings.append(f"paper fill failed: {exc}")

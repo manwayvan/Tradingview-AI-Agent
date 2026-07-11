@@ -72,3 +72,49 @@ def test_orders_api(client):
     state = client.get("/api/state").json()
     assert "orders" in state
     assert client.get("/api/orders").json().get("orders") is not None
+
+
+def test_filled_order_records_teachable_context(tmp_path):
+    from datetime import date, timedelta
+
+    from optionsagents.chain import ChainSnapshot, OptionQuote
+    from optionsagents.schemas import (
+        LegAction, OptionLeg, OptionRight, OptionsTradePlan, StrategyType,
+    )
+
+    exp = (date.today() + timedelta(days=21)).isoformat()
+    snapshot = ChainSnapshot(
+        underlying="TEST", spot=100.0, asof=date.today(),
+        quotes=[
+            OptionQuote(expiry=exp, right="call", strike=100, bid=3.95, ask=4.05,
+                        iv=0.4, volume=500, open_interest=1000, delta=0.5),
+            OptionQuote(expiry=exp, right="put", strike=100, bid=3.95, ask=4.05,
+                        iv=0.4, volume=400, open_interest=900, delta=-0.5),
+        ],
+    )
+    plan = OptionsTradePlan(
+        strategy=StrategyType.LONG_CALL, underlying="TEST", direction="bullish",
+        legs=[OptionLeg(action=LegAction.BUY, right=OptionRight.CALL,
+                        strike=100, expiry=exp)],
+        net_price=4.0, price_type="debit",
+    )
+    broker = PaperBroker(str(tmp_path / "acct.json"), starting_cash=10_000,
+                         slippage_pct=0.0)
+    ctx = OrderContext(source="autonomous", ticker="TEST", mode="swing",
+                       signal="buy", direction="bullish",
+                       source_rationale="scan rank #1")
+    pos = broker.execute_plan(
+        plan, snapshot, "swing", order_ctx=ctx,
+        mode_rules={"mode": "swing", "dte_window": "14-60"},
+    )
+    order = next(o for o in broker.list_orders() if o.position_id == pos.id)
+    assert order.chain_conditions["spot"] == 100.0
+    assert "expected_move_pct" in order.chain_conditions
+    assert order.mode_rules["dte_window"] == "14-60"
+    assert "call" in order.strategy_education.lower()
+
+    # Reload from disk: teachable context survives persistence.
+    broker2 = PaperBroker(str(tmp_path / "acct.json"))
+    order2 = next(o for o in broker2.list_orders() if o.position_id == pos.id)
+    assert order2.chain_conditions["spot"] == 100.0
+    assert order2.strategy_education == order.strategy_education

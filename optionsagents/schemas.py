@@ -172,6 +172,60 @@ class OptionsTradePlan(BaseModel):
         return self.max_risk_per_contract() * self.contracts
 
 
+# Plain-English explainers shown in the GUI's order detail view, so every
+# executed order doubles as a lesson in what the structure is and when it
+# gets used.
+STRATEGY_EDUCATION: dict[str, str] = {
+    StrategyType.LONG_CALL.value: (
+        "A long call gives you the right to buy 100 shares at the strike until "
+        "expiry. It profits when the stock rises enough (and fast enough) to "
+        "outrun time decay. Maximum loss is the premium paid; upside is "
+        "unlimited. Used when the view is bullish and implied volatility is "
+        "reasonable, so the premium isn't overpriced."
+    ),
+    StrategyType.LONG_PUT.value: (
+        "A long put gives you the right to sell 100 shares at the strike until "
+        "expiry. It profits when the stock falls enough to outrun time decay. "
+        "Maximum loss is the premium paid. Used when the view is bearish and "
+        "the premium is fairly priced."
+    ),
+    StrategyType.BULL_CALL_SPREAD.value: (
+        "A bull call spread buys a call and sells a higher-strike call, same "
+        "expiry. The sold call pays for part of the bought one, lowering cost "
+        "and time-decay drag, in exchange for capping profit at the strike "
+        "width. Maximum loss is the net debit. Used for a bullish view when "
+        "implied volatility is elevated — you're partly selling the expensive "
+        "premium back."
+    ),
+    StrategyType.BEAR_PUT_SPREAD.value: (
+        "A bear put spread buys a put and sells a lower-strike put, same "
+        "expiry. Cheaper than a lone put with profit capped at the strike "
+        "width; maximum loss is the net debit. Used for a bearish view when "
+        "puts are expensive (elevated implied volatility)."
+    ),
+    StrategyType.BULL_PUT_SPREAD.value: (
+        "A bull put credit spread sells a put and buys a cheaper lower-strike "
+        "put as protection, collecting a net credit up front. It profits if "
+        "the stock stays above the short strike — it can win even if the "
+        "stock goes nowhere. Maximum loss is the strike width minus the "
+        "credit. Used for a bullish-to-neutral view when implied volatility "
+        "is high (rich premium to sell)."
+    ),
+    StrategyType.BEAR_CALL_SPREAD.value: (
+        "A bear call credit spread sells a call and buys a cheaper higher-"
+        "strike call as protection, collecting a net credit. It profits if "
+        "the stock stays below the short strike. Maximum loss is the strike "
+        "width minus the credit. Used for a bearish-to-neutral view when "
+        "implied volatility is high."
+    ),
+    StrategyType.NO_TRADE.value: (
+        "Standing aside. Not trading is a position too — it's the right call "
+        "when there's no directional edge, the options are too illiquid to "
+        "fill fairly, or the risk doesn't fit the account rules."
+    ),
+}
+
+
 def render_trade_plan(plan: OptionsTradePlan) -> str:
     """Render a plan to the markdown shape used in reports and logs."""
     lines = [

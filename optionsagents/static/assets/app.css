@@ -236,3 +236,12 @@ body.tutorial-open { overflow: hidden; }
   .desktop-table { display: block; }
   .mobile-cards { display: none; }
 }
+
+/* Order detail: key-value rows and strategy explainer */
+.kv { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 4px 12px; font-size: 13px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.learn-box {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px;
+}

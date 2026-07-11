@@ -211,6 +211,24 @@ class PaperBroker:
         orders = list(self._state.get("orders", []))
         return list(reversed(orders[-limit:]))
 
+    @staticmethod
+    def _chain_conditions(snapshot: ChainSnapshot) -> dict:
+        """Market picture at entry, stored on the order for the detail view."""
+        def rnd(v, n=2):
+            return round(v, n) if v is not None else None
+
+        atm_iv = snapshot.atm_iv()
+        return {
+            "spot": rnd(snapshot.spot),
+            "atm_iv_pct": rnd(atm_iv * 100, 1) if atm_iv else None,
+            "iv_rank": rnd(snapshot.iv_rank, 0),
+            "hv_20d_pct": rnd((snapshot.hv_20d or 0) * 100, 1) or None,
+            "expected_move_pct": rnd(snapshot.expected_move_pct(), 1),
+            "put_call_volume_ratio": rnd(snapshot.put_call_volume_ratio()),
+            "put_call_oi_ratio": rnd(snapshot.put_call_oi_ratio()),
+            "expirations_considered": snapshot.expiries(),
+        }
+
     def record_order(
         self,
         ctx: OrderContext,
@@ -226,7 +244,11 @@ class PaperBroker:
         price_type: str | None = None,
         filled_at: str | None = None,
         order_id: str | None = None,
+        chain_conditions: dict | None = None,
+        mode_rules: dict | None = None,
     ) -> TradeOrder:
+        from optionsagents.schemas import STRATEGY_EDUCATION
+
         oid = order_id or uuid.uuid4().hex[:10]
         teach = build_teach_summary(
             ctx,
@@ -260,6 +282,9 @@ class PaperBroker:
             price_type=price_type,
             filled_at=filled_at or (_now() if status in ("filled", "open") else None),
             warnings=list(warnings or []),
+            chain_conditions=dict(chain_conditions or {}),
+            mode_rules=dict(mode_rules or {}),
+            strategy_education=STRATEGY_EDUCATION.get(strategy or "", ""),
         )
         self._state.setdefault("orders", []).append(order)
         return order
@@ -281,10 +306,11 @@ class PaperBroker:
         snapshot: ChainSnapshot,
         mode_name: str = "",
         order_ctx: OrderContext | None = None,
+        mode_rules: dict | None = None,
     ) -> Position | None:
         """Fill a validated plan at net mid +/- slippage. Returns None for no_trade."""
         with self._lock:
-            return self._execute_plan_locked(plan, snapshot, mode_name, order_ctx)
+            return self._execute_plan_locked(plan, snapshot, mode_name, order_ctx, mode_rules)
 
     def _execute_plan_locked(
         self,
@@ -292,6 +318,7 @@ class PaperBroker:
         snapshot: ChainSnapshot,
         mode_name: str = "",
         order_ctx: OrderContext | None = None,
+        mode_rules: dict | None = None,
     ) -> Position | None:
         if plan.strategy == StrategyType.NO_TRADE or not plan.legs:
             self._journal("no_trade", underlying=plan.underlying, rationale=plan.rationale)
@@ -370,6 +397,8 @@ class PaperBroker:
                 entry_net=pos.entry_net,
                 price_type=pos.price_type,
                 filled_at=pos.opened_at,
+                chain_conditions=self._chain_conditions(snapshot),
+                mode_rules=mode_rules,
             )
         self._journal(
             "open", position_id=pos.id, underlying=pos.underlying,

@@ -175,6 +175,14 @@ function renderOrders(orders) {
     </button>`).join("");
 }
 
+function kvBlock(heading, obj) {
+  const rows = Object.entries(obj || {})
+    .filter(([, v]) => v !== null && v !== undefined && v !== "")
+    .map(([k, v]) => `<dt>${esc(k.replaceAll("_", " "))}</dt><dd>${esc(Array.isArray(v) ? v.join(", ") : v)}</dd>`);
+  if (!rows.length) return "";
+  return `<div class="detail-block"><h3>${esc(heading)}</h3><dl class="kv">${rows.join("")}</dl></div>`;
+}
+
 function showOrderDetail(order) {
   const sheet = $("#order-detail");
   const body = $("#order-detail-body");
@@ -198,6 +206,9 @@ function showOrderDetail(order) {
     </div>
     ${blocks.map(([h, t]) => `
       <div class="detail-block"><h3>${esc(h)}</h3><p>${esc(t)}</p></div>`).join("")}
+    ${kvBlock("Market conditions at entry", order.chain_conditions)}
+    ${kvBlock("Risk rules applied", order.mode_rules)}
+    ${order.strategy_education ? `<div class="detail-block"><h3>🎓 What is a ${esc(String(order.strategy || "").replaceAll("_", " "))}?</h3><p class="learn-box">${esc(order.strategy_education)}</p></div>` : ""}
     ${order.warnings?.length ? `<div class="detail-block"><h3>Notes</h3><p>${order.warnings.map((w) => esc(w)).join("<br>")}</p></div>` : ""}
     ${order.exit_reason ? `<div class="detail-block"><h3>Exit</h3><p>Closed via ${esc(order.exit_reason)}${order.realized_pnl != null ? ` · P&amp;L ${fmtUsd(order.realized_pnl)}` : ""}</p></div>` : ""}`;
   sheet.classList.remove("hidden");
