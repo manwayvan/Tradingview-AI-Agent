@@ -548,11 +548,15 @@ function renderTutorialStep(idx) {
 
 function openTutorial(step = 0) {
   renderTutorialStep(step);
-  $("#tutorial")?.classList.remove("hidden");
+  const el = $("#tutorial");
+  if (!el) return;
+  el.classList.remove("hidden");
+  document.body.classList.add("tutorial-open");
 }
 
 function closeTutorial(markDone = true) {
   $("#tutorial")?.classList.add("hidden");
+  document.body.classList.remove("tutorial-open");
   if (markDone) {
     try { localStorage.setItem(TUTORIAL_KEY, "1"); } catch (_) { /* ignore */ }
   }
@@ -641,6 +645,13 @@ function bindAppEvents() {
   });
 
   document.body.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-show-tutorial]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      openTutorial(0);
+      return;
+    }
+
     const whyBtn = e.target.closest("[data-why-position]");
     if (whyBtn) {
       const posId = whyBtn.dataset.whyPosition;
@@ -772,12 +783,16 @@ function bindAppEvents() {
     window.location.href = "/login";
   });
 
-  $("#btn-show-tutorial")?.addEventListener("click", () => openTutorial(0));
-  $("#tutorial-skip")?.addEventListener("click", () => closeTutorial(true));
-  $("#tutorial-back")?.addEventListener("click", () => {
+  $("#tutorial-skip")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeTutorial(true);
+  });
+  $("#tutorial-back")?.addEventListener("click", (e) => {
+    e.stopPropagation();
     if (_tutorialStep > 0) renderTutorialStep(_tutorialStep - 1);
   });
-  $("#tutorial-next")?.addEventListener("click", () => {
+  $("#tutorial-next")?.addEventListener("click", (e) => {
+    e.stopPropagation();
     const step = TUTORIAL_STEPS[_tutorialStep];
     if (step?.nav) showPanel(step.nav);
     if (_tutorialStep >= TUTORIAL_STEPS.length - 1) {
@@ -786,6 +801,9 @@ function bindAppEvents() {
       return;
     }
     renderTutorialStep(_tutorialStep + 1);
+  });
+  $("#tutorial")?.querySelector(".tutorial-panel")?.addEventListener("click", (e) => {
+    e.stopPropagation();
   });
   document.body.addEventListener("click", (e) => {
     if (e.target.closest("[data-close-tutorial]")) closeTutorial(true);

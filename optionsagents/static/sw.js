@@ -1,4 +1,4 @@
-const CACHE = "options-ai-v3";
+const CACHE = "options-ai-v4";
 const STATIC_ASSETS = ["/assets/app.css", "/assets/app.js", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

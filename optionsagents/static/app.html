@@ -246,7 +246,7 @@
         <p><strong>Name:</strong> <span id="acct-name">—</span></p>
         <p><strong>TradingView:</strong> <span id="acct-tv">—</span> (<span id="acct-tv-status">—</span>)</p>
         <div class="btn-row" style="margin-top:12px">
-          <button class="btn sm" id="btn-show-tutorial" type="button">View quick start guide</button>
+          <button class="btn sm" type="button" data-show-tutorial>View quick start guide</button>
           <button class="btn danger" id="btn-logout" type="button">Sign out</button>
         </div>
       </div>
@@ -258,35 +258,6 @@
     </section>
   </main>
 
-  <div id="tutorial" class="tutorial-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
-    <div class="tutorial-backdrop" data-close-tutorial></div>
-    <div class="tutorial-panel">
-      <div class="tutorial-header">
-        <h2 id="tutorial-title">Quick start</h2>
-        <span class="tutorial-progress" id="tutorial-progress"></span>
-      </div>
-      <div id="tutorial-body" class="tutorial-body"></div>
-      <div class="tutorial-actions">
-        <button class="btn sm" type="button" id="tutorial-skip">Skip</button>
-        <div class="btn-row" style="margin:0">
-          <button class="btn sm hidden" type="button" id="tutorial-back">Back</button>
-          <button class="btn primary" type="button" id="tutorial-next">Next</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="order-detail" class="order-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="order-detail-title">
-    <div class="order-sheet-backdrop" data-close-order></div>
-    <div class="order-sheet-panel">
-      <div class="order-sheet-header">
-        <h2 id="order-detail-title">Order details</h2>
-        <button class="btn sm" type="button" data-close-order aria-label="Close">✕</button>
-      </div>
-      <div id="order-detail-body" class="order-sheet-body"></div>
-    </div>
-  </div>
-
   <nav class="bottom-nav" aria-label="Main">
     <button class="nav-btn active" data-nav="home" type="button"><span class="icon">🏠</span>Home</button>
     <button class="nav-btn" data-nav="orders" type="button"><span class="icon">📜</span>Orders</button>
@@ -297,7 +268,37 @@
     <button class="nav-btn" data-nav="account" type="button"><span class="icon">👤</span>Account</button>
   </nav>
 </div>
-<script src="/assets/app.js"></script>
+
+<div id="tutorial" class="tutorial-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+  <div class="tutorial-backdrop" data-close-tutorial></div>
+  <div class="tutorial-panel">
+    <div class="tutorial-header">
+      <h2 id="tutorial-title">Quick start</h2>
+      <span class="tutorial-progress" id="tutorial-progress"></span>
+    </div>
+    <div id="tutorial-body" class="tutorial-body"></div>
+    <div class="tutorial-actions">
+      <button class="btn sm" type="button" id="tutorial-skip">Skip</button>
+      <div class="btn-row" style="margin:0">
+        <button class="btn sm hidden" type="button" id="tutorial-back">Back</button>
+        <button class="btn primary" type="button" id="tutorial-next">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="order-detail" class="order-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="order-detail-title">
+  <div class="order-sheet-backdrop" data-close-order></div>
+  <div class="order-sheet-panel">
+    <div class="order-sheet-header">
+      <h2 id="order-detail-title">Order details</h2>
+      <button class="btn sm" type="button" data-close-order aria-label="Close">✕</button>
+    </div>
+    <div id="order-detail-body" class="order-sheet-body"></div>
+  </div>
+</div>
+
+<script src="/assets/app.js?v=4"></script>
 <script>App.bindAppEvents(); App.initApp();</script>
 </body>
 </html>
