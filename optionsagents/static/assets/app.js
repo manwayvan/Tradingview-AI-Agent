@@ -440,6 +440,138 @@ async function refreshTradingView() {
   renderTradingView(setup, setup.user);
 }
 
+const TUTORIAL_KEY = "oa_tutorial_v1_done";
+
+const TUTORIAL_STEPS = [
+  {
+    title: "Welcome",
+    html: `
+      <h3>Welcome to Options AI</h3>
+      <p>This is a <strong>paper trading</strong> desk — fake money, real market data. Nothing here is financial advice.</p>
+      <p>In about a minute you will know how to:</p>
+      <ul>
+        <li>Size trades to your risk budget</li>
+        <li>Run free built-in signals (no TradingView needed)</li>
+        <li>See why each trade happened</li>
+      </ul>`,
+    nav: null,
+    nextLabel: "Let's go",
+  },
+  {
+    title: "Set your risk",
+    html: `
+      <h3>1. Account tab — bankroll &amp; risk</h3>
+      <p>Open <strong>Account</strong> in the bottom nav and set:</p>
+      <ul>
+        <li><strong>Starting capital</strong> — your paper bankroll (e.g. $100,000)</li>
+        <li><strong>Risk per trade</strong> — % of equity risked on each trade (start with 1–2%)</li>
+        <li><strong>Max portfolio risk</strong> — total open risk cap across all positions</li>
+      </ul>
+      <p>Every signal and AI trade is sized to these limits automatically.</p>`,
+    nav: "account",
+    nextLabel: "Open Account",
+  },
+  {
+    title: "Free signals",
+    html: `
+      <h3>2. Signals tab — easiest way to start</h3>
+      <p>Go to <strong>Signals</strong>. No paid TradingView plan required.</p>
+      <ul>
+        <li>Signals should already be <strong>on</strong> by default</li>
+        <li>Edit the <strong>watchlist</strong> (e.g. SPY, NVDA, AAPL) and tap Save</li>
+        <li>Day trades fire on 5-minute EMA/VWAP rules; swing runs once daily</li>
+      </ul>
+      <p>Tap <strong>Scan now</strong> to test immediately during market hours.</p>`,
+    nav: "signals",
+    nextLabel: "Open Signals",
+  },
+  {
+    title: "AI brain (optional)",
+    html: `
+      <h3>3. AI tab — autonomous scanner</h3>
+      <p>Optional: enable the <strong>AI brain</strong> to scan a universe of tickers, pick setups, and trade on its own schedule.</p>
+      <ul>
+        <li>Tap <strong>Enable AI brain</strong> on the AI tab</li>
+        <li>Uses the same risk % from Account</li>
+        <li>Stands aside when the market regime is unfavorable</li>
+      </ul>
+      <p>You can run Signals only, AI only, or both.</p>`,
+    nav: "ai",
+    nextLabel: "Open AI",
+  },
+  {
+    title: "Watch & learn",
+    html: `
+      <h3>4. Home &amp; Orders — track everything</h3>
+      <ul>
+        <li><strong>Home</strong> — open/closed positions and live P&amp;L</li>
+        <li>Tap <strong>Why?</strong> on any position to see the full reasoning</li>
+        <li><strong>Orders</strong> — every trade attempt, including skipped ones</li>
+      </ul>
+      <p>Skipped trades show why risk, earnings, or regime rules blocked entry — that's intentional protection.</p>`,
+    nav: "home",
+    nextLabel: "Open Home",
+  },
+  {
+    title: "Measure edge",
+    html: `
+      <h3>5. Stats tab — are you making money?</h3>
+      <p>After some trades close, check <strong>Stats</strong> for:</p>
+      <ul>
+        <li><strong>Expectancy</strong> — average $ per trade (want positive)</li>
+        <li><strong>Win rate</strong> and max drawdown</li>
+        <li>P&amp;L broken down by source (signals vs AI) and mode (day vs swing)</li>
+      </ul>
+      <p>Re-open this guide anytime from Account → <strong>View quick start guide</strong>.</p>`,
+    nav: "stats",
+    nextLabel: "Get started",
+  },
+];
+
+let _tutorialStep = 0;
+
+function renderTutorialStep(idx) {
+  const step = TUTORIAL_STEPS[idx];
+  const body = $("#tutorial-body");
+  const progress = $("#tutorial-progress");
+  const back = $("#tutorial-back");
+  const next = $("#tutorial-next");
+  const title = $("#tutorial-title");
+  if (!step || !body) return;
+  _tutorialStep = idx;
+  if (title) title.textContent = step.title;
+  body.innerHTML = step.html;
+  if (progress) progress.textContent = `${idx + 1} / ${TUTORIAL_STEPS.length}`;
+  if (back) back.classList.toggle("hidden", idx === 0);
+  if (next) next.textContent = step.nextLabel || (idx === TUTORIAL_STEPS.length - 1 ? "Done" : "Next");
+}
+
+function openTutorial(step = 0) {
+  renderTutorialStep(step);
+  $("#tutorial")?.classList.remove("hidden");
+}
+
+function closeTutorial(markDone = true) {
+  $("#tutorial")?.classList.add("hidden");
+  if (markDone) {
+    try { localStorage.setItem(TUTORIAL_KEY, "1"); } catch (_) { /* ignore */ }
+  }
+  try { sessionStorage.removeItem("oa_show_tutorial"); } catch (_) { /* ignore */ }
+}
+
+function shouldShowTutorialOnLogin() {
+  try {
+    if (sessionStorage.getItem("oa_show_tutorial") === "1") return true;
+    return !localStorage.getItem(TUTORIAL_KEY);
+  } catch (_) {
+    return false;
+  }
+}
+
+function maybeShowTutorialOnLogin() {
+  if (shouldShowTutorialOnLogin()) openTutorial(0);
+}
+
 function showPanel(name) {
   $$(".panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === name));
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.nav === name));
@@ -461,6 +593,7 @@ async function initApp() {
   showPanel("home");
   await refreshApp();
   checkPersistenceBanner();
+  maybeShowTutorialOnLogin();
   if (!window._tvLoaded) {
     window._tvLoaded = true;
     try { await refreshTradingView(); } catch (_) { /* optional */ }
@@ -639,6 +772,25 @@ function bindAppEvents() {
     window.location.href = "/login";
   });
 
+  $("#btn-show-tutorial")?.addEventListener("click", () => openTutorial(0));
+  $("#tutorial-skip")?.addEventListener("click", () => closeTutorial(true));
+  $("#tutorial-back")?.addEventListener("click", () => {
+    if (_tutorialStep > 0) renderTutorialStep(_tutorialStep - 1);
+  });
+  $("#tutorial-next")?.addEventListener("click", () => {
+    const step = TUTORIAL_STEPS[_tutorialStep];
+    if (step?.nav) showPanel(step.nav);
+    if (_tutorialStep >= TUTORIAL_STEPS.length - 1) {
+      closeTutorial(true);
+      toast("You're set — enable Signals or AI to start paper trading");
+      return;
+    }
+    renderTutorialStep(_tutorialStep + 1);
+  });
+  document.body.addEventListener("click", (e) => {
+    if (e.target.closest("[data-close-tutorial]")) closeTutorial(true);
+  });
+
   ["#acct-starting-cash", "#acct-risk-pct", "#acct-portfolio-pct"].forEach((sel) => {
     $(sel)?.addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
   });
@@ -688,6 +840,9 @@ async function initAuthPage(kind) {
         body: JSON.stringify(body),
       });
       try { localStorage.setItem("oa_last_email", body.email); } catch (_) { /* ignore */ }
+      if (kind === "signup") {
+        try { sessionStorage.setItem("oa_show_tutorial", "1"); } catch (_) { /* ignore */ }
+      }
       window.location.href = "/app";
     } catch (ex) {
       err.textContent = ex.message;
@@ -704,4 +859,4 @@ async function initAuthPage(kind) {
   } catch (_) { /* ignore */ }
 }
 
-window.App = { initApp, initAuthPage, bindAppEvents, api, refreshApp };
+window.App = { initApp, initAuthPage, bindAppEvents, api, refreshApp, openTutorial };
