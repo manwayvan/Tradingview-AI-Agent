@@ -91,7 +91,18 @@ function renderTiles(acct, root = "#home-tiles") {
     <div class="tile"><div class="label">Realized</div><div class="value">${pnlHtml(acct.realized_pnl)}</div><div class="sub">win ${winRate}</div></div>`;
 }
 
-function renderPositions(positions) {
+function orderForPosition(positionId, orders) {
+  const list = orders || window._orders || [];
+  return list.find((o) => o.position_id === positionId);
+}
+
+function whyButtonHtml(positionId, orders) {
+  if (!orderForPosition(positionId, orders)) return "";
+  return `<button class="btn sm" type="button" data-why-position="${esc(positionId)}">Why?</button>`;
+}
+
+function renderPositions(positions, orders) {
+  const orderList = orders ?? window._orders ?? [];
   const open = (positions || []).filter((p) => p.status === "open");
   const closed = (positions || []).filter((p) => p.status === "closed").reverse();
   window._closed = closed;
@@ -112,7 +123,7 @@ function renderPositions(positions) {
         <td>${p.last_mark != null ? `$${Number(p.last_mark).toFixed(2)}` : "–"}</td>
         <td>${pnlHtml(p.unrealized_pnl)}</td>
         <td>${fmtUsd(p.max_risk)}</td>
-        <td><button class="btn sm danger" data-close="${esc(p.id)}">Close</button></td>
+        <td><div class="btn-row">${whyButtonHtml(p.id, orderList)}<button class="btn sm danger" data-close="${esc(p.id)}">Close</button></div></td>
       </tr>`).join("");
   }
 
@@ -123,7 +134,10 @@ function renderPositions(positions) {
         <div class="row"><strong>${esc(p.underlying)}</strong>${pnlHtml(p.unrealized_pnl)}</div>
         <div class="row"><span class="muted">${esc(p.strategy)} · ${esc(p.mode)}</span><span>${fmtUsd(p.max_risk)} risk</span></div>
         <div class="muted" style="font-size:12px;margin-bottom:8px">${esc(legStr(p.legs))}</div>
-        <button class="btn sm danger block" data-close="${esc(p.id)}">Close position</button>
+        <div class="btn-row">
+          ${whyButtonHtml(p.id, orderList)}
+          <button class="btn sm danger" data-close="${esc(p.id)}">Close position</button>
+        </div>
       </div>`).join("");
   }
 
@@ -137,12 +151,9 @@ function renderPositions(positions) {
         <td class="muted">${esc((p.closed_at || "").slice(0, 16).replace("T", " "))}</td>
         <td>${pnlHtml(p.realized_pnl)}</td>
         <td>${esc(p.exit_reason || "")}</td>
+        <td>${whyButtonHtml(p.id, orderList)}</td>
       </tr>`).join("");
   }
-}
-
-function orderForPosition(positionId) {
-  return (window._orders || []).find((o) => o.position_id === positionId);
 }
 
 function statusBadge(status) {
@@ -371,8 +382,8 @@ function renderAccount(user, risk) {
 async function refreshApp() {
   const s = await api("/api/state");
   window._state = s;
-  renderPositions(s.positions);
   renderOrders(s.orders);
+  renderPositions(s.positions, s.orders);
   renderTiles(s.account);
   renderStrategies(s.engine);
   renderSignals(s.free_signals);
@@ -459,6 +470,23 @@ function bindAppEvents() {
   });
 
   document.body.addEventListener("click", async (e) => {
+    const whyBtn = e.target.closest("[data-why-position]");
+    if (whyBtn) {
+      const posId = whyBtn.dataset.whyPosition;
+      const local = orderForPosition(posId);
+      if (local) {
+        showOrderDetail(local);
+        return;
+      }
+      try {
+        const r = await api(`/api/orders/${posId}`);
+        showOrderDetail(r.order);
+      } catch (ex) {
+        toast(ex.message);
+      }
+      return;
+    }
+
     const orderBtn = e.target.closest("[data-order]");
     if (orderBtn) {
       const id = orderBtn.dataset.order;
