@@ -14,8 +14,6 @@ from fastapi.staticfiles import StaticFiles
 from optionsagents.webapp.api import router as api_router
 from optionsagents.webapp.auth import list_users
 from optionsagents.webapp.database import get_db
-from optionsagents.webapp.middleware import configure_cors
-from optionsagents.webapp.persistence import persistence_status
 
 # Re-export for CLI backward compatibility
 from optionsagents.webapp.legacy import (  # noqa: F401
@@ -25,6 +23,8 @@ from optionsagents.webapp.legacy import (  # noqa: F401
     get_orchestrator,
     get_pipeline,
 )
+from optionsagents.webapp.middleware import configure_cors
+from optionsagents.webapp.persistence import persistence_status
 from optionsagents.webapp.workspaces import get_workspace_manager
 
 logger = logging.getLogger(__name__)

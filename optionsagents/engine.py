@@ -22,9 +22,9 @@ import os
 import threading
 import uuid
 from collections import deque
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Callable
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)

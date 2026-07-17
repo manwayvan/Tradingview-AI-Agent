@@ -1,6 +1,5 @@
 """Tests for centralized data paths."""
 
-import os
 
 import pytest
 

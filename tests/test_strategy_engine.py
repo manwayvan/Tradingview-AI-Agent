@@ -23,8 +23,10 @@ SAT = et(2026, 7, 11, 11, 0)
 
 
 def strat(**kw):
-    defaults = dict(id="s1", ticker="SPY", mode="swing", trigger="daily",
-                    signal="analyze", run_time="10:00", interval_minutes=30)
+    defaults = {
+        "id": "s1", "ticker": "SPY", "mode": "swing", "trigger": "daily",
+        "signal": "analyze", "run_time": "10:00", "interval_minutes": 30,
+    }
     defaults.update(kw)
     return Strategy(**defaults)
 

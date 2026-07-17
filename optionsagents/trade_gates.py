@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from optionsagents.autonomous.market_context import MarketContext
-from optionsagents.earnings import earnings_block_reason
 from optionsagents.autonomous.portfolio_risk import PortfolioRiskManager, RiskVerdict
+from optionsagents.earnings import earnings_block_reason
 
 
 @dataclass(frozen=True)
@@ -34,26 +34,26 @@ def check_regime_gate(
     """Hard blocks for macro regime — applies to every entry path."""
     conv = conviction if conviction is not None else (0.55 if signal in ("buy", "sell") else 0.5)
 
-    if market.regime == "risk_off" and direction == "bullish":
-        if conv < 0.75:
-            return RiskVerdict(
-                False,
-                f"risk_off regime blocks new bullish trades (conviction {conv:.0%} < 75%)",
-            )
+    if market.regime == "risk_off" and direction == "bullish" and conv < 0.75:
+        return RiskVerdict(
+            False,
+            f"risk_off regime blocks new bullish trades (conviction {conv:.0%} < 75%)",
+        )
 
-    if market.regime == "volatile" and direction == "bullish":
-        if conv < 0.65:
-            return RiskVerdict(
-                False,
-                f"volatile regime blocks new bullish trades (conviction {conv:.0%} < 65%)",
-            )
+    if market.regime == "volatile" and direction == "bullish" and conv < 0.65:
+        return RiskVerdict(
+            False,
+            f"volatile regime blocks new bullish trades (conviction {conv:.0%} < 65%)",
+        )
 
-    if market.regime == "risk_off" and market.spy_return_5d < -0.03:
-        if signal == "buy" and conv < 0.8:
-            return RiskVerdict(
-                False,
-                "sharp risk-off tape — fast buy signals blocked unless conviction ≥ 80%",
-            )
+    if (
+        market.regime == "risk_off" and market.spy_return_5d < -0.03
+        and signal == "buy" and conv < 0.8
+    ):
+        return RiskVerdict(
+            False,
+            "sharp risk-off tape — fast buy signals blocked unless conviction ≥ 80%",
+        )
 
     return RiskVerdict(True)
 

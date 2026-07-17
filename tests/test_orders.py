@@ -79,7 +79,11 @@ def test_filled_order_records_teachable_context(tmp_path):
 
     from optionsagents.chain import ChainSnapshot, OptionQuote
     from optionsagents.schemas import (
-        LegAction, OptionLeg, OptionRight, OptionsTradePlan, StrategyType,
+        LegAction,
+        OptionLeg,
+        OptionRight,
+        OptionsTradePlan,
+        StrategyType,
     )
 
     exp = (date.today() + timedelta(days=21)).isoformat()

@@ -29,7 +29,7 @@ from optionsagents.brokers.schwab_client import SchwabApiError, SchwabAuthError,
 from optionsagents.brokers.symbols import to_occ_symbol
 from optionsagents.chain import ChainSnapshot, plan_mid_price
 from optionsagents.orders import OrderContext
-from optionsagents.paper_broker import LegFill, OPTION_MULTIPLIER, PaperBroker, Position
+from optionsagents.paper_broker import OPTION_MULTIPLIER, LegFill, PaperBroker, Position
 from optionsagents.schemas import OptionsTradePlan, StrategyType
 
 logger = logging.getLogger(__name__)

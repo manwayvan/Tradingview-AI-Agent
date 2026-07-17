@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-
 SOURCE_LABELS = {
     "autonomous": "Autonomous AI",
     "free_signal": "Free built-in signal",

@@ -60,7 +60,7 @@ class SchwabCredentials:
     redirect_uri: str
 
     @classmethod
-    def from_env(cls) -> "SchwabCredentials | None":
+    def from_env(cls) -> SchwabCredentials | None:
         key = os.environ.get("SCHWAB_APP_KEY", "").strip()
         secret = os.environ.get("SCHWAB_APP_SECRET", "").strip()
         redirect = os.environ.get("SCHWAB_REDIRECT_URI", "").strip()
