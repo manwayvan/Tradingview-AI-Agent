@@ -452,6 +452,23 @@ def _build_debit_spread(
     )
 
 
+def _nearest_expiry_group(cands: list[OptionQuote]) -> list[OptionQuote] | None:
+    """Group candidates by expiry; return the nearest expiry with >=2 quotes.
+
+    ``snapshot.candidates()`` pools every expiry inside the mode's DTE
+    window, sorted by delta proximity — so the two nearest-in-strike
+    candidates can land on different expiries. A spread's legs must share
+    one expiry, so we pick a single expiry up front.
+    """
+    by_expiry: dict[str, list[OptionQuote]] = {}
+    for q in cands:
+        by_expiry.setdefault(q.expiry, []).append(q)
+    for expiry in sorted(by_expiry):
+        if len(by_expiry[expiry]) >= 2:
+            return by_expiry[expiry]
+    return None
+
+
 def _build_credit_spread(
     direction: str,
     snapshot: ChainSnapshot,
@@ -461,16 +478,16 @@ def _build_credit_spread(
 ) -> OptionsTradePlan:
     if direction == "bullish":
         right = "put"
-        cands = snapshot.candidates(mode, right)
-        if len(cands) < 2:
+        group = _nearest_expiry_group(snapshot.candidates(mode, right))
+        if group is None:
             return OptionsTradePlan(
                 strategy=StrategyType.NO_TRADE,
                 underlying=snapshot.underlying,
                 direction=direction,
-                rationale="Not enough liquid puts for a credit spread fallback.",
+                rationale="Not enough liquid puts in a single expiry for a credit spread fallback.",
                 confidence=0.0,
             )
-        ordered = sorted(cands, key=lambda q: q.strike, reverse=True)
+        ordered = sorted(group, key=lambda q: q.strike, reverse=True)
         sell_leg, buy_leg = ordered[0], ordered[1]
         strat = StrategyType.BULL_PUT_SPREAD
         net = max(sell_leg.mid - buy_leg.mid, 0.05)
@@ -481,16 +498,16 @@ def _build_credit_spread(
         label = f"bull put spread {sell_leg.strike:g}/{buy_leg.strike:g}"
     else:
         right = "call"
-        cands = snapshot.candidates(mode, right)
-        if len(cands) < 2:
+        group = _nearest_expiry_group(snapshot.candidates(mode, right))
+        if group is None:
             return OptionsTradePlan(
                 strategy=StrategyType.NO_TRADE,
                 underlying=snapshot.underlying,
                 direction=direction,
-                rationale="Not enough liquid puts for a credit spread fallback.",
+                rationale="Not enough liquid calls in a single expiry for a credit spread fallback.",
                 confidence=0.0,
             )
-        ordered = sorted(cands, key=lambda q: q.strike)
+        ordered = sorted(group, key=lambda q: q.strike)
         sell_leg, buy_leg = ordered[0], ordered[1]
         strat = StrategyType.BEAR_CALL_SPREAD
         net = max(sell_leg.mid - buy_leg.mid, 0.05)

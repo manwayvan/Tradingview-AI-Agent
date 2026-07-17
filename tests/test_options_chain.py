@@ -119,3 +119,40 @@ def test_fallback_plan_illiquid_chain_is_no_trade():
     empty = ChainSnapshot(underlying="TEST", spot=100.0, asof=TODAY, quotes=[])
     plan = build_default_plan("bullish", empty, get_mode("swing"))
     assert plan.strategy == StrategyType.NO_TRADE
+
+
+EXP2 = (TODAY + timedelta(days=35)).isoformat()
+
+
+def _multi_expiry_snapshot(iv_rank: float) -> ChainSnapshot:
+    """Two expiries both offer in-band-delta strikes, so a naive spread
+    picker (sorting by strike across the whole candidate pool) can pair
+    legs from different expiries — reproduces the production bug where
+    AAPL's autonomous cycle threw 'spread legs must share expiry and right'."""
+    return ChainSnapshot(
+        underlying="TEST", spot=100.0, asof=TODAY, iv_rank=iv_rank,
+        quotes=[
+            OptionQuote(expiry=EXP, right="put", strike=100, bid=3.90, ask=4.10, iv=0.40, volume=500, open_interest=1000, delta=-0.48),
+            OptionQuote(expiry=EXP, right="put", strike=95, bid=1.95, ask=2.05, iv=0.40, volume=500, open_interest=1000, delta=-0.32),
+            OptionQuote(expiry=EXP2, right="put", strike=99, bid=3.60, ask=3.80, iv=0.40, volume=500, open_interest=1000, delta=-0.47),
+            OptionQuote(expiry=EXP, right="call", strike=100, bid=3.90, ask=4.10, iv=0.40, volume=500, open_interest=1000, delta=0.52),
+            OptionQuote(expiry=EXP, right="call", strike=105, bid=1.95, ask=2.05, iv=0.40, volume=500, open_interest=1000, delta=0.35),
+            OptionQuote(expiry=EXP2, right="call", strike=101, bid=3.60, ask=3.80, iv=0.40, volume=500, open_interest=1000, delta=0.53),
+        ],
+    )
+
+
+def test_fallback_credit_spread_keeps_legs_on_one_expiry_bullish():
+    snapshot = _multi_expiry_snapshot(iv_rank=70.0)
+    plan = build_default_plan("bullish", snapshot, get_mode("swing"))
+    assert plan.strategy == StrategyType.BULL_PUT_SPREAD
+    assert plan.legs[0].expiry == plan.legs[1].expiry
+    assert validate_plan_against_chain(plan, snapshot) == []
+
+
+def test_fallback_credit_spread_keeps_legs_on_one_expiry_bearish():
+    snapshot = _multi_expiry_snapshot(iv_rank=70.0)
+    plan = build_default_plan("bearish", snapshot, get_mode("swing"))
+    assert plan.strategy == StrategyType.BEAR_CALL_SPREAD
+    assert plan.legs[0].expiry == plan.legs[1].expiry
+    assert validate_plan_against_chain(plan, snapshot) == []

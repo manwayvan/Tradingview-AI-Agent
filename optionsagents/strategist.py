@@ -122,7 +122,20 @@ class OptionsStrategist:
                 plan = None
 
         if plan is None:
-            plan = build_default_plan(direction, snapshot, mode)
+            try:
+                plan = build_default_plan(direction, snapshot, mode)
+            except Exception as exc:
+                logger.warning(
+                    "Deterministic fallback plan failed for %s (%s); standing aside",
+                    snapshot.underlying, exc,
+                )
+                plan = OptionsTradePlan(
+                    strategy=StrategyType.NO_TRADE,
+                    underlying=snapshot.underlying,
+                    direction=direction,
+                    rationale=f"Plan construction error: {exc}",
+                    confidence=0.0,
+                )
         return plan
 
     def _ask_llm(

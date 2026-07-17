@@ -139,8 +139,9 @@ def create_user(email: str, password: str, display_name: str = "") -> User:
     with transaction() as conn:
         conn.execute(
             """INSERT INTO users
-               (id, email, password_hash, display_name, webhook_secret, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (id, email, password_hash, display_name, webhook_secret,
+                autonomous_enabled, scanner_migrated, created_at)
+               VALUES (?, ?, ?, ?, ?, 1, 1, ?)""",
             (user_id, email, _hash_password(password), display_name.strip(), _new_secret(), created),
         )
     user = get_user_by_id(user_id)

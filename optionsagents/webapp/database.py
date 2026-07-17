@@ -50,10 +50,11 @@ def init_schema(conn: sqlite3.Connection) -> None:
             tradingview_username TEXT NOT NULL DEFAULT '',
             webhook_secret TEXT NOT NULL,
             tv_connected_at TEXT,
-            autonomous_enabled INTEGER NOT NULL DEFAULT 0,
+            autonomous_enabled INTEGER NOT NULL DEFAULT 1,
             starting_cash REAL NOT NULL DEFAULT 100000,
             risk_pct_per_trade REAL NOT NULL DEFAULT 10,
             max_portfolio_risk_pct REAL NOT NULL DEFAULT 50,
+            scanner_migrated INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         );
 
@@ -81,6 +82,18 @@ def _migrate_users(conn: sqlite3.Connection) -> None:
     if "max_portfolio_risk_pct" not in cols:
         conn.execute(
             "ALTER TABLE users ADD COLUMN max_portfolio_risk_pct REAL NOT NULL DEFAULT 50"
+        )
+    if "scanner_migrated" not in cols:
+        # One-time: the AI brain used to default off and require a manual
+        # toggle. The unified Scanner switch should just run once deployed,
+        # so flip existing accounts on exactly once; never touch this again
+        # afterwards, so a user's own later choice to pause it always sticks.
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN scanner_migrated INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.execute(
+            "UPDATE users SET autonomous_enabled = 1, scanner_migrated = 1 "
+            "WHERE scanner_migrated = 0"
         )
     conn.commit()
 

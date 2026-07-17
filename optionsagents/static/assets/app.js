@@ -454,16 +454,16 @@ const TUTORIAL_STEPS = [
     nextLabel: "Open Account",
   },
   {
-    title: "Start the scanner",
+    title: "The scanner is already on",
     html: `
-      <h3>2. Scanner tab — one switch</h3>
-      <p>Go to <strong>Scanner</strong> and tap <strong>Start scanning</strong>. No watchlist or paid TradingView plan required.</p>
+      <h3>2. Scanner tab — nothing to set up</h3>
+      <p>The scanner starts <strong>on by default</strong> the moment you sign up — no watchlist, no toggle, no paid TradingView plan.</p>
       <ul>
-        <li>Once started, the system scans for entries <strong>every 5 minutes</strong> during market hours — automatically</li>
+        <li>Every 5 minutes during market hours it scans for entries <strong>automatically</strong>, and restarts itself on its own after any server restart</li>
         <li>It finds candidates across the whole market by itself: most active names, biggest movers, trending tickers</li>
         <li>Rule-based entry signals + the AI brain pick the best setups, sized to your risk % from Account</li>
       </ul>
-      <p>Tap <strong>Scan now</strong> to test immediately during market hours.</p>`,
+      <p>Visit <strong>Scanner</strong> any time to pause it, or tap <strong>Scan now</strong> to test immediately.</p>`,
     nav: "scanner",
     nextLabel: "Open Scanner",
   },

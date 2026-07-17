@@ -118,10 +118,12 @@ python run_options.py serve
 
 Then open **http://localhost:8000** — you'll land on the sign-in page.
 
-1. **Create an account** (email + password). Each user gets an isolated paper ledger, strategies, and AI brain.
-2. Open the **Scanner** tab and tap **Start scanning** — one switch runs the whole scanning process. **No watchlist needed:** every 5 minutes during market hours the server discovers candidates across the whole market from free Yahoo screeners (most actives, top gainers/losers, trending), filters out illiquid names, applies the same EMA/VWAP/RSI rules as the Pine scripts, **and** lets the AI brain rank and pick the best setups — opening paper trades automatically. No TradingView subscription required.
+1. **Create an account** (email + password). Each user gets an isolated paper ledger, strategies, and AI brain — **the scanner turns itself on at signup**, no setup step required.
+2. That's it. Every 5 minutes during market hours the server discovers candidates across the whole market from free Yahoo screeners (most actives, top gainers/losers, trending), filters out illiquid names, applies the same EMA/VWAP/RSI rules as the Pine scripts, **and** lets the AI brain rank and pick the best setups — opening paper trades automatically. No watchlist, no TradingView subscription, nothing to click. Check the **Scanner** tab any time to see it running or pause it.
 3. *(Optional)* Open the **TV** tab if you have a **paid** TradingView plan and want chart alerts via webhook instead.
 4. *(Optional)* Add scheduled per-ticker strategies from **Plans**.
+
+**Zero-touch by design:** the FastAPI server resumes every account's scanner threads automatically on boot (its `lifespan` startup hook). As long as the process is running and its data directory persists (see below), you never have to re-enable anything after a redeploy or restart.
 
 **Mobile:** open the site in Safari/Chrome and use **Add to Home Screen** for a full-screen app experience. The bottom navigation works on phone and desktop.
 
