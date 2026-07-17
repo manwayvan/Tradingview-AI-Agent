@@ -280,95 +280,59 @@ function renderStrategies(engine) {
     </tr>`).join("");
 }
 
-function renderSignals(signals) {
-  if (!signals) return;
-  const cfg = signals.config || {};
-  const enabled = cfg.enabled;
-  $("#pill-signals")?.classList.toggle("on", enabled && signals.running);
-  const btn = $("#btn-signals-toggle");
+function renderScanner(scanner) {
+  if (!scanner) return;
+  const enabled = scanner.enabled;
+  $("#pill-scanner")?.classList.toggle("on", enabled && scanner.running);
+  const btn = $("#btn-scanner-toggle");
   if (btn) {
-    btn.textContent = enabled ? "Pause signals" : "Enable signals";
+    btn.textContent = enabled ? "Stop scanning" : "Start scanning";
     btn.classList.toggle("primary", !enabled);
   }
-  const tiles = $("#signals-tiles");
+  const runBtn = $("#btn-scanner-run");
+  if (runBtn) {
+    runBtn.disabled = !!scanner.cycle_running;
+    runBtn.textContent = scanner.cycle_running ? "Scanning…" : "Scan now";
+  }
+  const risk = window._state?.risk;
+  const tiles = $("#scanner-tiles");
   if (tiles) {
     tiles.innerHTML = `
-      <div class="tile"><div class="label">Watchlist</div><div class="value">${(cfg.watchlist || []).length}</div><div class="sub">tickers</div></div>
-      <div class="tile"><div class="label">Day scan</div><div class="value">${cfg.day_scan_minutes ?? 5}m</div><div class="sub">${signals.market_open ? "market open" : "closed"}</div></div>
-      <div class="tile"><div class="label">Swing scan</div><div class="value">${cfg.swing_scan_time ?? "10:05"}</div><div class="sub">ET daily</div></div>
-      <div class="tile"><div class="label">Status</div><div class="value">${enabled ? "on" : "off"}</div><div class="sub">${signals.due_day_scan ? "scan due" : "waiting"}</div></div>`;
+      <div class="tile"><div class="label">Status</div><div class="value">${enabled ? "on" : "off"}</div><div class="sub">${scanner.market_open ? "market open" : "market closed"}</div></div>
+      <div class="tile"><div class="label">Scans every</div><div class="value">${scanner.scan_interval_minutes ?? 5}m</div><div class="sub">during market hours</div></div>
+      <div class="tile"><div class="label">Coverage</div><div class="value">${(scanner.watchlist || []).length}+${scanner.ai_universe_size ?? 0}</div><div class="sub">watchlist + AI universe</div></div>
+      <div class="tile"><div class="label">Trade risk</div><div class="value">${fmtUsd(risk?.trade_budget_usd)}</div><div class="sub">${risk?.risk_pct_per_trade ?? "–"}% equity</div></div>`;
   }
-  const st = $("#signals-status");
+  const st = $("#scanner-status");
   if (st) {
-    let txt = signals.last_day_scan
-      ? `Last day scan ${signals.last_day_scan.slice(0, 16).replace("T", " ")}`
-      : "No day scans yet.";
-    if (signals.last_swing_scan_date) txt += ` · swing ${signals.last_swing_scan_date}`;
+    let txt = scanner.last_scan
+      ? `Last scan ${scanner.last_scan.slice(0, 16).replace("T", " ")}`
+      : "No scans yet.";
+    if (scanner.last_ai_result) txt += ` · AI opened ${scanner.last_ai_result.trades_opened}`;
+    if (scanner.risk?.kill_switch_active) txt = "Kill switch active — daily loss limit hit (includes open P&L).";
     st.textContent = txt;
   }
   const input = $("#watchlist-input");
-  if (input && cfg.watchlist?.length && !input.dataset.touched) {
-    input.value = cfg.watchlist.join(", ");
+  if (input && scanner.watchlist?.length && !input.dataset.touched) {
+    input.value = scanner.watchlist.join(", ");
   }
-  const feed = $("#signals-feed");
+  const feed = $("#scanner-feed");
   if (feed) {
-    const events = signals.events || [];
+    const events = scanner.events || [];
     feed.innerHTML = events.length
-      ? events.map((e) => `<div class="ev"><time>${esc(e.time)}</time><span class="kind">${esc(e.kind)}</span><span>${esc(e.message)}</span></div>`).join("")
-      : '<div class="empty">Free signals scan your watchlist during market hours.</div>';
+      ? events.map((e) => `<div class="ev"><time>${esc(e.time)}</time><span class="kind">${esc(e.engine === "ai" ? "AI" : "signal")}:${esc(e.kind)}</span><span>${esc(e.message)}</span></div>`).join("")
+      : '<div class="empty">Start the scanner — it checks for entries every 5 minutes during market hours.</div>';
   }
   const banner = $("#signals-banner");
   if (banner) banner.classList.toggle("hidden", !enabled);
 }
 
-function renderAutonomous(auto) {
-  if (!auto) return;
-  const enabled = auto.enabled;
-  $("#pill-auto")?.classList.toggle("on", enabled);
-  const btn = $("#btn-auto-toggle");
-  if (btn) {
-    btn.textContent = enabled ? "Pause AI brain" : "Enable AI brain";
-    btn.classList.toggle("primary", !enabled);
-  }
-  const runBtn = $("#btn-auto-run");
-  if (runBtn) {
-    runBtn.disabled = !!auto.cycle_running;
-    runBtn.textContent = auto.cycle_running ? "Cycle running…" : "Run cycle now";
-  }
-  const risk = auto.risk || {};
-  const cfg = auto.config || {};
-  const tiles = $("#auto-tiles");
-  if (tiles) {
-    const risk = window._state?.risk;
-    tiles.innerHTML = `
-      <div class="tile"><div class="label">Universe</div><div class="value">${cfg.universe_size ?? "–"}</div><div class="sub">top ${cfg.scan_top_n ?? "–"}</div></div>
-      <div class="tile"><div class="label">Trade risk</div><div class="value">${fmtUsd(risk?.trade_budget_usd)}</div><div class="sub">${risk?.risk_pct_per_trade ?? "–"}% equity</div></div>
-      <div class="tile"><div class="label">Cycle</div><div class="value">${cfg.cycle_interval_minutes ?? "–"}m</div><div class="sub">${auto.due ? "due" : auto.cycle_running ? "running" : "wait"}</div></div>
-      <div class="tile"><div class="label">Loss room</div><div class="value">${fmtUsd(risk?.daily_loss_cap_usd ?? risk?.daily_loss_remaining)}</div></div>`;
-  }
-  const st = $("#auto-status");
-  if (st) {
-    let txt = auto.last_cycle ? `Last cycle ${auto.last_cycle.slice(0, 16).replace("T", " ")}` : "No cycles yet.";
-    if (auto.last_result) txt += ` · opened ${auto.last_result.trades_opened}`;
-    if (risk.kill_switch_active) txt = "Kill switch active — daily loss limit hit (includes open P&amp;L).";
-    st.textContent = txt;
-  }
-  const feed = $("#auto-feed");
-  if (feed) {
-    const events = auto.events || [];
-    feed.innerHTML = events.length
-      ? events.map((e) => `<div class="ev"><time>${esc(e.time)}</time><span class="kind">${esc(e.kind)}</span><span>${esc(e.message)}</span></div>`).join("")
-      : '<div class="empty">Enable the AI brain to start autonomous scanning.</div>';
-  }
-}
-
-function renderFeed(engine, journal, autonomous) {
+function renderFeed(engine, journal, scanner) {
   const feed = $("#activity-feed");
   if (!feed) return;
   const events = [];
   (engine?.events || []).forEach((e) => events.push({ time: e.time, kind: e.kind, msg: e.message }));
-  (autonomous?.events || []).forEach((e) => events.push({ time: e.time, kind: `auto:${e.kind}`, msg: e.message }));
-  (window._signals?.events || []).forEach((e) => events.push({ time: e.time, kind: `signal:${e.kind}`, msg: e.message }));
+  (scanner?.events || []).forEach((e) => events.push({ time: e.time, kind: `${e.engine === "ai" ? "AI" : "signal"}:${e.kind}`, msg: e.message }));
   (journal || []).forEach((j) => {
     const { time, event, ...rest } = j;
     const detail = Object.entries(rest).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : v}`).join(", ");
@@ -423,7 +387,7 @@ function renderAccount(user, risk) {
   }
   const note = $("#acct-risk-note");
   if (note && risk) {
-    note.textContent = `Each autonomous or signal trade risks up to ${fmtUsd(risk.trade_budget_usd)} (${risk.risk_pct_per_trade}% of your paper equity). Open positions are monitored every 5 minutes for profit target, stop loss, and expiry exits.`;
+    note.textContent = `Each scanner trade risks up to ${fmtUsd(risk.trade_budget_usd)} (${risk.risk_pct_per_trade}% of your paper equity). Open positions are monitored every 5 minutes for profit target, stop loss, and expiry exits.`;
   }
 }
 
@@ -435,13 +399,10 @@ async function refreshApp() {
   renderStats(s.stats);
   renderTiles(s.account);
   renderStrategies(s.engine);
-  renderSignals(s.free_signals);
-  window._signals = s.free_signals;
-  renderAutonomous(s.autonomous);
-  renderFeed(s.engine, s.journal, s.autonomous);
+  renderScanner(s.scanner);
+  renderFeed(s.engine, s.journal, s.scanner);
   renderAccount(s.user, s.risk);
   $("#pill-engine")?.classList.toggle("on", s.engine?.running);
-  $("#pill-signals")?.classList.toggle("on", s.free_signals?.config?.enabled && s.free_signals?.running);
   $("#pill-market")?.classList.toggle("on", s.engine?.market_open);
   $("#pill-updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
 }
@@ -462,7 +423,7 @@ const TUTORIAL_STEPS = [
       <p>In about a minute you will know how to:</p>
       <ul>
         <li>Size trades to your risk budget</li>
-        <li>Run free built-in signals (no TradingView needed)</li>
+        <li>Start the scanner (no TradingView needed)</li>
         <li>See why each trade happened</li>
       </ul>`,
     nav: null,
@@ -483,37 +444,23 @@ const TUTORIAL_STEPS = [
     nextLabel: "Open Account",
   },
   {
-    title: "Free signals",
+    title: "Start the scanner",
     html: `
-      <h3>2. Signals tab — easiest way to start</h3>
-      <p>Go to <strong>Signals</strong>. No paid TradingView plan required.</p>
+      <h3>2. Scanner tab — one switch</h3>
+      <p>Go to <strong>Scanner</strong> and tap <strong>Start scanning</strong>. No paid TradingView plan required.</p>
       <ul>
-        <li>Signals should already be <strong>on</strong> by default</li>
-        <li>Edit the <strong>watchlist</strong> (e.g. SPY, NVDA, AAPL) and tap Save</li>
-        <li>Day trades fire on 5-minute EMA/VWAP rules; swing runs once daily</li>
+        <li>Once started, the system scans for entries <strong>every 5 minutes</strong> during market hours — automatically</li>
+        <li>Rule-based signals watch your <strong>watchlist</strong> (edit it and tap Save)</li>
+        <li>The AI brain also picks setups from a wider universe, sized to your risk % from Account</li>
       </ul>
       <p>Tap <strong>Scan now</strong> to test immediately during market hours.</p>`,
-    nav: "signals",
-    nextLabel: "Open Signals",
-  },
-  {
-    title: "AI brain (optional)",
-    html: `
-      <h3>3. AI tab — autonomous scanner</h3>
-      <p>Optional: enable the <strong>AI brain</strong> to scan a universe of tickers, pick setups, and trade on its own schedule.</p>
-      <ul>
-        <li>Tap <strong>Enable AI brain</strong> on the AI tab</li>
-        <li>Uses the same risk % from Account</li>
-        <li>Stands aside when the market regime is unfavorable</li>
-      </ul>
-      <p>You can run Signals only, AI only, or both.</p>`,
-    nav: "ai",
-    nextLabel: "Open AI",
+    nav: "scanner",
+    nextLabel: "Open Scanner",
   },
   {
     title: "Watch & learn",
     html: `
-      <h3>4. Home &amp; Orders — track everything</h3>
+      <h3>3. Home &amp; Orders — track everything</h3>
       <ul>
         <li><strong>Home</strong> — open/closed positions and live P&amp;L</li>
         <li>Tap <strong>Why?</strong> on any position to see the full reasoning</li>
@@ -526,7 +473,7 @@ const TUTORIAL_STEPS = [
   {
     title: "Measure edge",
     html: `
-      <h3>5. Stats tab — are you making money?</h3>
+      <h3>4. Stats tab — are you making money?</h3>
       <p>After some trades close, check <strong>Stats</strong> for:</p>
       <ul>
         <li><strong>Expectancy</strong> — average $ per trade (want positive)</li>
@@ -717,29 +664,15 @@ function bindAppEvents() {
     }
   });
 
-  $("#btn-auto-toggle")?.addEventListener("click", async () => {
-    await api("/api/autonomous/toggle", { method: "POST" });
+  $("#btn-scanner-toggle")?.addEventListener("click", async () => {
+    const r = await api("/api/scanner/toggle", { method: "POST" });
+    toast(r.enabled ? "Scanner started — checking for entries every 5 minutes" : "Scanner stopped");
     refreshApp();
   });
-  $("#btn-auto-run")?.addEventListener("click", async () => {
+  $("#btn-scanner-run")?.addEventListener("click", async () => {
     try {
-      await api("/api/autonomous/run", { method: "POST" });
-      toast("Cycle started");
-      refreshApp();
-    } catch (ex) {
-      toast(ex.message || "Could not start cycle");
-      refreshApp();
-    }
-  });
-
-  $("#btn-signals-toggle")?.addEventListener("click", async () => {
-    await api("/api/signals/toggle", { method: "POST" });
-    refreshApp();
-  });
-  $("#btn-signals-scan")?.addEventListener("click", async () => {
-    try {
-      const r = await api("/api/signals/scan", { method: "POST" });
-      toast(`Scan done · day ${r.day_signals} · swing ${r.swing_signals}`);
+      const r = await api("/api/scanner/run", { method: "POST" });
+      toast(`Scan done · day ${r.day_signals} · swing ${r.swing_signals}${r.ai_cycle_started ? " · AI cycle running" : ""}`);
       refreshApp();
     } catch (ex) {
       toast(ex.message || "Scan failed");
@@ -750,7 +683,7 @@ function bindAppEvents() {
     e.preventDefault();
     const f = new FormData(e.target);
     const tickers = String(f.get("tickers")).split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean);
-    await api("/api/signals/watchlist", {
+    await api("/api/scanner/watchlist", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tickers }),
@@ -808,7 +741,7 @@ function bindAppEvents() {
     if (step?.nav) showPanel(step.nav);
     if (_tutorialStep >= TUTORIAL_STEPS.length - 1) {
       closeTutorial(true);
-      toast("You're set — enable Signals or AI to start paper trading");
+      toast("You're set — start the Scanner to begin paper trading");
       return;
     }
     renderTutorialStep(_tutorialStep + 1);

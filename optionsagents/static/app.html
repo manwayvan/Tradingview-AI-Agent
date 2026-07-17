@@ -17,8 +17,7 @@
       <h1>Options AI</h1>
       <div class="pills">
         <span class="pill" id="pill-engine">engine</span>
-        <span class="pill" id="pill-signals">signals</span>
-        <span class="pill" id="pill-auto">AI</span>
+        <span class="pill" id="pill-scanner">scanner</span>
         <span class="pill" id="pill-market">market</span>
         <span class="pill" id="pill-updated">…</span>
       </div>
@@ -30,7 +29,7 @@
 
     <section class="panel active" data-panel="home">
       <div class="banner" id="signals-banner">
-        <strong>Free signals are on.</strong> The built-in scanner watches your list and trades automatically — no TradingView subscription needed.
+        <strong>Scanner is on.</strong> The system scans for entries every 5 minutes during market hours and trades automatically — no TradingView subscription needed.
       </div>
       <div class="tiles" id="home-tiles"></div>
 
@@ -69,7 +68,7 @@
         <h2>Order history</h2>
         <p class="sub">Every trade the system attempted — tap any row to learn why it was executed, skipped, or closed.</p>
         <div class="order-list" id="order-list"></div>
-        <div class="empty" id="orders-empty">No orders yet. Enable Signals or AI to start trading.</div>
+        <div class="empty" id="orders-empty">No orders yet. Start the Scanner to begin trading.</div>
       </div>
     </section>
 
@@ -99,37 +98,23 @@
       </div>
     </section>
 
-    <section class="panel" data-panel="ai">
+    <section class="panel" data-panel="scanner">
       <div class="card">
-        <h2>Autonomous AI brain</h2>
-        <p class="sub">Atomically scans the market, analyzes long and short setups, sizes each trade to your risk % from the Account tab, executes paper options, and monitors for auto-close.</p>
+        <h2>Market scanner</h2>
+        <p class="sub">One switch runs the whole scanning process. Every 5 minutes during market hours the system scans your watchlist with EMA/VWAP + EMA/RSI rules <em>and</em> lets the AI brain pick setups from its universe — each entry is sized to your risk % from the Account tab and auto-closed on target, stop, or expiry.</p>
         <div class="btn-row" style="margin-bottom:12px">
-          <button class="btn primary" id="btn-auto-toggle">Enable AI brain</button>
-          <button class="btn" id="btn-auto-run">Run cycle now</button>
+          <button class="btn primary" id="btn-scanner-toggle">Start scanning</button>
+          <button class="btn" id="btn-scanner-run">Scan now</button>
         </div>
-        <div class="tiles" id="auto-tiles"></div>
-        <p class="sub" id="auto-status"></p>
-        <div class="feed" id="auto-feed"></div>
-      </div>
-    </section>
-
-    <section class="panel" data-panel="signals">
-      <div class="card">
-        <h2>Free built-in signals</h2>
-        <p class="sub">Runs the same EMA/VWAP (day) and EMA/RSI (swing) rules as the Pine scripts — entirely on this server. No paid TradingView plan required.</p>
-        <div class="btn-row" style="margin-bottom:12px">
-          <button class="btn primary" id="btn-signals-toggle">Pause signals</button>
-          <button class="btn" id="btn-signals-scan">Scan now</button>
-        </div>
-        <div class="tiles" id="signals-tiles"></div>
-        <p class="sub" id="signals-status"></p>
+        <div class="tiles" id="scanner-tiles"></div>
+        <p class="sub" id="scanner-status"></p>
         <form id="watchlist-form" class="form-grid" style="margin-bottom:12px">
           <label style="grid-column:1/-1">Watchlist (comma-separated tickers)
             <input name="tickers" id="watchlist-input" placeholder="SPY, QQQ, NVDA, AAPL" required>
           </label>
           <label style="align-self:end"><button class="btn primary block" type="submit">Save watchlist</button></label>
         </form>
-        <div class="feed" id="signals-feed"></div>
+        <div class="feed" id="scanner-feed"></div>
       </div>
       <div class="card">
         <h2>TradingView (optional)</h2>
@@ -177,7 +162,7 @@
       <div class="card">
         <h2>TradingView connection <span class="pill" style="font-size:11px">optional · paid plan</span></h2>
         <p class="sub">
-          TradingView webhooks require a paid subscription. For a free path, use <strong>Signals</strong> tab
+          TradingView webhooks require a paid subscription. For a free path, use the <strong>Scanner</strong> tab
           (built-in scanner). If you already have TradingView Pro+, link your username here and paste the webhook URL + Pine script into alerts.
         </p>
         <div class="btn-row" style="margin-bottom:10px">
@@ -262,8 +247,7 @@
     <button class="nav-btn active" data-nav="home" type="button"><span class="icon">🏠</span>Home</button>
     <button class="nav-btn" data-nav="orders" type="button"><span class="icon">📜</span>Orders</button>
     <button class="nav-btn" data-nav="stats" type="button"><span class="icon">📈</span>Stats</button>
-    <button class="nav-btn" data-nav="signals" type="button"><span class="icon">📡</span>Signals</button>
-    <button class="nav-btn" data-nav="ai" type="button"><span class="icon">🤖</span>AI</button>
+    <button class="nav-btn" data-nav="scanner" type="button"><span class="icon">📡</span>Scanner</button>
     <button class="nav-btn" data-nav="strategies" type="button"><span class="icon">📋</span>Plans</button>
     <button class="nav-btn" data-nav="account" type="button"><span class="icon">👤</span>Account</button>
   </nav>
@@ -298,7 +282,7 @@
   </div>
 </div>
 
-<script src="/assets/app.js?v=4"></script>
+<script src="/assets/app.js?v=5"></script>
 <script>App.bindAppEvents(); App.initApp();</script>
 </body>
 </html>

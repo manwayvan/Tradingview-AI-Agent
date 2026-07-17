@@ -309,6 +309,40 @@ def reset_account(
     }
 
 
+# ---- unified scanner (signals + AI brain behind one switch) ------------
+
+
+@router.get("/api/scanner")
+def scanner_state(request: Request, user: User = Depends(require_user)) -> dict:
+    return _ws(user, request).scanner_snapshot()
+
+
+@router.post("/api/scanner/toggle")
+def toggle_scanner(request: Request, user: User = Depends(require_user)) -> dict:
+    ws = _ws(user, request)
+    ws.set_scanning(not ws.scanning_enabled)
+    return {"enabled": ws.scanning_enabled}
+
+
+@router.post("/api/scanner/run")
+def run_scanner_now(request: Request, user: User = Depends(require_user)) -> dict:
+    return _ws(user, request).scan_now()
+
+
+@router.put("/api/scanner/watchlist")
+def update_scanner_watchlist(
+    req: WatchlistRequest, request: Request, user: User = Depends(require_user),
+) -> dict:
+    try:
+        _ws(user, request).free_signals.set_watchlist(req.tickers)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"watchlist": _ws(user, request).free_signals.config.watchlist}
+
+
+# ---- legacy per-engine routes (kept for compatibility) -----------------
+
+
 @router.get("/api/signals")
 def signals_state(request: Request, user: User = Depends(require_user)) -> dict:
     return _ws(user, request).free_signals.snapshot()

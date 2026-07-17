@@ -177,3 +177,33 @@ def test_signals_api_toggle_and_watchlist(client, monkeypatch):
     scan = client.post("/api/signals/scan").json()
     assert "day_signals" in scan
     assert "swing_signals" in scan
+
+
+def test_scanner_api_one_switch_for_both_engines(client):
+    client.post("/api/auth/signup", json={
+        "email": "scanner@example.com", "password": "password123",
+    })
+
+    state = client.get("/api/scanner").json()
+    assert state["scan_interval_minutes"] == 5
+    assert "SPY" in state["watchlist"]
+    assert state["enabled"] is True  # free signals default on
+
+    # one toggle flips both engines together
+    off = client.post("/api/scanner/toggle").json()
+    assert off["enabled"] is False
+    full = client.get("/api/state").json()
+    assert full["free_signals"]["config"]["enabled"] is False
+    assert full["autonomous"]["enabled"] is False
+    assert full["scanner"]["enabled"] is False
+
+    on = client.post("/api/scanner/toggle").json()
+    assert on["enabled"] is True
+    full = client.get("/api/state").json()
+    assert full["free_signals"]["config"]["enabled"] is True
+    assert full["autonomous"]["enabled"] is True
+    assert full["scanner"]["enabled"] is True
+    assert full["autonomous"]["config"]["cycle_interval_minutes"] == 5
+
+    wl = client.put("/api/scanner/watchlist", json={"tickers": ["SPY", "QQQ"]}).json()
+    assert wl["watchlist"] == ["SPY", "QQQ"]

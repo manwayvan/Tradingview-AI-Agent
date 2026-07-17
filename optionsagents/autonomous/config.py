@@ -39,7 +39,7 @@ class AutonomousConfig:
     universe: tuple[str, ...] = DEFAULT_UNIVERSE
     scan_top_n: int = 12          # candidates passed to the strategy brain
     max_trades_per_cycle: int = 2
-    cycle_interval_minutes: int = 60
+    cycle_interval_minutes: int = 5
     min_conviction: float = 0.55  # brain must score above this to trade
     max_daily_loss: float = 2_500.0
     max_total_open_risk: float = 5_000.0
@@ -62,7 +62,7 @@ class AutonomousConfig:
             universe=universe,
             scan_top_n=_env_int("AUTONOMOUS_SCAN_TOP_N", 12),
             max_trades_per_cycle=_env_int("AUTONOMOUS_MAX_TRADES_PER_CYCLE", 2),
-            cycle_interval_minutes=_env_int("AUTONOMOUS_CYCLE_MINUTES", 60),
+            cycle_interval_minutes=_env_int("AUTONOMOUS_CYCLE_MINUTES", 5),
             min_conviction=_env_float("AUTONOMOUS_MIN_CONVICTION", 0.55),
             max_daily_loss=_env_float("AUTONOMOUS_MAX_DAILY_LOSS", 2_500.0),
             max_total_open_risk=_env_float("AUTONOMOUS_MAX_OPEN_RISK", 5_000.0),

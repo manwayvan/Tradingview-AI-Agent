@@ -394,6 +394,53 @@ class UserWorkspace:
         self.user = replace(self.user, autonomous_enabled=enabled)
         self.orchestrator.set_enabled(enabled)
 
+    # ---- unified scanner ------------------------------------------------
+
+    @property
+    def scanning_enabled(self) -> bool:
+        """The scanner is on when either engine (signals or AI) is enabled."""
+        return self.free_signals.config.enabled or self.orchestrator.enabled
+
+    def set_scanning(self, enabled: bool) -> None:
+        """One switch for the whole scanning process: rule signals + AI brain."""
+        self.free_signals.set_enabled(enabled)
+        self.set_autonomous(enabled)
+
+    def scan_now(self) -> dict:
+        """Run one full scan immediately: rule-based signals + an AI cycle."""
+        result = self.free_signals.scan_now()
+        result["ai_cycle_started"] = self.orchestrator.run_now()
+        return result
+
+    def scanner_snapshot(self) -> dict:
+        """Merged view of both scanning engines for the unified Scanner UI."""
+        signals = self.free_signals.snapshot()
+        auto = self.orchestrator.snapshot(broker=self.broker)
+        events = sorted(
+            [{**e, "engine": "signal"} for e in signals.get("events", [])]
+            + [{**e, "engine": "ai"} for e in auto.get("events", [])],
+            key=lambda e: e.get("time", ""),
+            reverse=True,
+        )[:100]
+        return {
+            "enabled": self.scanning_enabled,
+            "running": signals.get("running", False) or auto.get("running", False),
+            "market_open": signals.get("market_open", False),
+            "scan_interval_minutes": min(
+                self.free_signals.config.day_scan_minutes,
+                self.orchestrator.config.cycle_interval_minutes,
+            ),
+            "watchlist": list(self.free_signals.config.watchlist),
+            "ai_universe_size": len(self.orchestrator.config.universe),
+            "cycle_running": auto.get("cycle_running", False),
+            "last_scan": signals.get("last_day_scan"),
+            "last_ai_cycle": auto.get("last_cycle"),
+            "last_ai_result": auto.get("last_result"),
+            "swing_scan_time": self.free_signals.config.swing_scan_time,
+            "risk": auto.get("risk", {}),
+            "events": events,
+        }
+
     def check_positions(self) -> list:
         return self._check_positions()
 
@@ -422,6 +469,7 @@ class UserWorkspace:
             "engine": self.engine.snapshot(),
             "autonomous": self.orchestrator.snapshot(broker=self.broker),
             "free_signals": self.free_signals.snapshot(),
+            "scanner": self.scanner_snapshot(),
         }
 
 
