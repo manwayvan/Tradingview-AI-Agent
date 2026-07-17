@@ -13,6 +13,12 @@ from optionsagents.autonomous.market_context import build_market_context
 from optionsagents.autonomous.orchestrator import AutonomousOrchestrator
 from optionsagents.autonomous.portfolio_risk import PortfolioRiskManager
 from optionsagents.autonomous.scanner import MarketScanner
+from optionsagents.brokers.schwab_broker import SchwabBroker
+from optionsagents.brokers.schwab_client import (
+    SchwabClient,
+    SchwabCredentials,
+    SchwabTokenStore,
+)
 from optionsagents.engine import Strategy, StrategyEngine
 from optionsagents.paper_broker import PaperBroker
 from optionsagents.paths import data_root
@@ -29,7 +35,7 @@ from optionsagents.signals import discovery
 from optionsagents.signals.free_engine import FreeSignalEngine
 from optionsagents.stats import compute_stats
 from optionsagents.trade_gates import TradeRequest, check_all_gates, direction_from_signal
-from optionsagents.webapp.auth import User, set_autonomous_enabled
+from optionsagents.webapp.auth import User, set_account_mode, set_autonomous_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +48,13 @@ def _user_dir(user_id: str) -> str:
     return path
 
 
+def schwab_token_path(user_id: str) -> str:
+    """Where a user's Schwab OAuth tokens live — exposed standalone so
+    scripts/schwab_login.py doesn't need to spin up a full UserWorkspace
+    (with its LLM brain, strategy engine, etc.) just to find this path."""
+    return os.path.join(_user_dir(user_id), "schwab_tokens.json")
+
+
 class UserWorkspace:
     """Isolated paper account, strategies, and autonomous loop for one user."""
 
@@ -49,11 +62,19 @@ class UserWorkspace:
         self.user = user
         base = _user_dir(user.id)
         self.account_file = os.path.join(base, "paper_account.json")
+        self.live_account_file = os.path.join(base, "live_account.json")
+        self.schwab_token_file = schwab_token_path(user.id)
         self.strategies_file = os.path.join(base, "strategies.json")
         self.autonomous_state_file = os.path.join(base, "autonomous_state.json")
         self.free_signals_file = os.path.join(base, "free_signals.json")
 
-        self.broker = PaperBroker(self.account_file, starting_cash=user.starting_cash)
+        self.paper_broker = PaperBroker(self.account_file, starting_cash=user.starting_cash)
+        self._schwab_client = self._build_schwab_client()
+        self.live_broker: SchwabBroker | None = (
+            SchwabBroker(self.live_account_file, client=self._schwab_client)
+            if self._schwab_client is not None else None
+        )
+        self.broker = self._select_broker()
         self._lock = threading.RLock()
         self._risk_manager = self._build_risk_manager()
 
@@ -87,6 +108,70 @@ class UserWorkspace:
         )
         self._started = False
 
+    def _build_schwab_client(self) -> SchwabClient | None:
+        creds = SchwabCredentials.from_env()
+        if creds is None:
+            return None
+        return SchwabClient(creds, SchwabTokenStore(self.schwab_token_file))
+
+    def _select_broker(self):
+        if self.user.account_mode == "live" and self.live_broker is not None:
+            return self.live_broker
+        return self.paper_broker
+
+    def _active_risk_pcts(self) -> tuple[float, float]:
+        """(risk_pct_per_trade, max_portfolio_risk_pct) for whichever
+        account is currently active — paper and live are configured
+        independently so real-money risk never inherits paper settings."""
+        if self.user.account_mode == "live":
+            return self.user.live_risk_pct_per_trade, self.user.live_max_portfolio_risk_pct
+        return self.user.risk_pct_per_trade, self.user.max_portfolio_risk_pct
+
+    def schwab_status(self) -> dict:
+        if self._schwab_client is None:
+            return {
+                "configured": False,
+                "connected": False,
+                "detail": "SCHWAB_APP_KEY / SCHWAB_APP_SECRET / SCHWAB_REDIRECT_URI "
+                          "not set on the server.",
+            }
+        connected = self._schwab_client.is_connected()
+        return {
+            "configured": True,
+            "connected": connected,
+            "detail": "Connected." if connected else (
+                "Not connected — run scripts/schwab_login.py to authorize."
+            ),
+        }
+
+    def set_account_mode(self, mode: str) -> None:
+        if mode == "live":
+            if self.live_broker is None:
+                raise ValueError(
+                    "Schwab is not configured on this server (missing SCHWAB_APP_KEY/"
+                    "SCHWAB_APP_SECRET/SCHWAB_REDIRECT_URI)."
+                )
+            if not self._schwab_client.is_connected():
+                raise ValueError(
+                    "Schwab is not connected yet — run scripts/schwab_login.py first."
+                )
+        self.user = set_account_mode(self.user.id, mode)
+        self.broker = self._select_broker()
+        self.refresh_risk_limits()
+
+    def update_live_risk_settings(
+        self, *, risk_pct_per_trade: float | None = None,
+        max_portfolio_risk_pct: float | None = None,
+    ) -> None:
+        from optionsagents.webapp.auth import update_live_risk_settings
+
+        self.user = update_live_risk_settings(
+            self.user.id,
+            risk_pct_per_trade=risk_pct_per_trade,
+            max_portfolio_risk_pct=max_portfolio_risk_pct,
+        )
+        self.refresh_risk_limits()
+
     def _build_brain(self) -> StrategyBrain:
         try:
             from tradingagents.default_config import DEFAULT_CONFIG
@@ -111,40 +196,37 @@ class UserWorkspace:
     def _portfolio_summary(self) -> dict:
         summary = self.broker.summary()
         budget = self.trade_risk_budget()
-        summary["risk_pct_per_trade"] = self.user.risk_pct_per_trade
+        risk_pct, portfolio_pct = self._active_risk_pcts()
+        summary["risk_pct_per_trade"] = risk_pct
         summary["trade_risk_budget_usd"] = budget
-        summary["max_portfolio_risk_pct"] = self.user.max_portfolio_risk_pct
+        summary["max_portfolio_risk_pct"] = portfolio_pct
+        summary["account_mode"] = self.user.account_mode
         return summary
 
     def _build_risk_manager(self) -> PortfolioRiskManager:
         summary = self.broker.summary()
         equity = summary["equity"]
+        risk_pct, portfolio_pct = self._active_risk_pcts()
         return PortfolioRiskManager(
-            max_daily_loss=daily_loss_cap(equity, self.user.risk_pct_per_trade),
-            max_total_open_risk=portfolio_risk_cap(
-                equity, self.user.max_portfolio_risk_pct,
-            ),
+            max_daily_loss=daily_loss_cap(equity, risk_pct),
+            max_total_open_risk=portfolio_risk_cap(equity, portfolio_pct),
             max_positions_per_ticker=1,
         )
 
     def trade_risk_budget(self, mode: str = "swing") -> float:
-        """USD max loss for the next trade from the user's risk % setting."""
+        """USD max loss for the next trade from the active account's risk % setting."""
         summary = self.broker.summary()
-        return trade_risk_budget(
-            summary["equity"],
-            summary["cash"],
-            self.user.risk_pct_per_trade,
-        )
+        risk_pct, _ = self._active_risk_pcts()
+        return trade_risk_budget(summary["equity"], summary["cash"], risk_pct)
 
     def refresh_risk_limits(self) -> None:
         """Recompute portfolio risk caps from live equity."""
         summary = self.broker.summary()
         equity = summary["equity"]
+        risk_pct, portfolio_pct = self._active_risk_pcts()
         self._risk_manager.refresh_limits(
-            max_daily_loss=daily_loss_cap(equity, self.user.risk_pct_per_trade),
-            max_total_open_risk=portfolio_risk_cap(
-                equity, self.user.max_portfolio_risk_pct,
-            ),
+            max_daily_loss=daily_loss_cap(equity, risk_pct),
+            max_total_open_risk=portfolio_risk_cap(equity, portfolio_pct),
         )
         self.orchestrator.risk = self._risk_manager
 
@@ -382,6 +464,7 @@ class UserWorkspace:
     def refresh_user(self, user: User) -> None:
         self.user = user
         self.orchestrator.set_enabled(user.autonomous_enabled)
+        self.broker = self._select_broker()
         self.refresh_risk_limits()
 
     def update_account(
@@ -393,7 +476,9 @@ class UserWorkspace:
     ) -> None:
         self.user = user
         if reset_paper:
-            self.broker.reset_account(user.starting_cash, clear_history=clear_history)
+            # Always the paper ledger specifically, never the live account,
+            # regardless of which broker is currently active.
+            self.paper_broker.reset_account(user.starting_cash, clear_history=clear_history)
         self.refresh_risk_limits()
 
     def set_autonomous(self, enabled: bool) -> None:
@@ -456,19 +541,16 @@ class UserWorkspace:
     def snapshot_state(self) -> dict:
         summary = self.broker.summary()
         budget = self.trade_risk_budget()
+        risk_pct, portfolio_pct = self._active_risk_pcts()
         risk_snap = self._risk_manager.snapshot(self.broker)
         return {
             "account": summary,
             "risk": {
-                "risk_pct_per_trade": self.user.risk_pct_per_trade,
-                "max_portfolio_risk_pct": self.user.max_portfolio_risk_pct,
+                "risk_pct_per_trade": risk_pct,
+                "max_portfolio_risk_pct": portfolio_pct,
                 "trade_budget_usd": budget,
-                "portfolio_risk_cap_usd": portfolio_risk_cap(
-                    summary["equity"], self.user.max_portfolio_risk_pct,
-                ),
-                "daily_loss_cap_usd": daily_loss_cap(
-                    summary["equity"], self.user.risk_pct_per_trade,
-                ),
+                "portfolio_risk_cap_usd": portfolio_risk_cap(summary["equity"], portfolio_pct),
+                "daily_loss_cap_usd": daily_loss_cap(summary["equity"], risk_pct),
                 **risk_snap,
             },
             "stats": self.performance_stats(),
@@ -479,6 +561,12 @@ class UserWorkspace:
             "autonomous": self.orchestrator.snapshot(broker=self.broker),
             "free_signals": self.free_signals.snapshot(),
             "scanner": self.scanner_snapshot(),
+            "broker": {
+                "account_mode": self.user.account_mode,
+                "schwab": self.schwab_status(),
+                "live_risk_pct_per_trade": self.user.live_risk_pct_per_trade,
+                "live_max_portfolio_risk_pct": self.user.live_max_portfolio_risk_pct,
+            },
         }
 
 

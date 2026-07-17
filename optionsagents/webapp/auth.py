@@ -31,6 +31,9 @@ class User:
     starting_cash: float
     risk_pct_per_trade: float
     max_portfolio_risk_pct: float
+    account_mode: str                    # "paper" | "live"
+    live_risk_pct_per_trade: float
+    live_max_portfolio_risk_pct: float
     created_at: str
 
     @classmethod
@@ -39,6 +42,14 @@ class User:
         risk_pct = float(row["risk_pct_per_trade"]) if "risk_pct_per_trade" in keys else 10.0
         portfolio_pct = (
             float(row["max_portfolio_risk_pct"]) if "max_portfolio_risk_pct" in keys else 50.0
+        )
+        account_mode = row["account_mode"] if "account_mode" in keys else "paper"
+        live_risk_pct = (
+            float(row["live_risk_pct_per_trade"]) if "live_risk_pct_per_trade" in keys else 1.0
+        )
+        live_portfolio_pct = (
+            float(row["live_max_portfolio_risk_pct"])
+            if "live_max_portfolio_risk_pct" in keys else 10.0
         )
         return cls(
             id=row["id"],
@@ -51,6 +62,9 @@ class User:
             starting_cash=float(row["starting_cash"]),
             risk_pct_per_trade=risk_pct,
             max_portfolio_risk_pct=portfolio_pct,
+            account_mode=account_mode or "paper",
+            live_risk_pct_per_trade=live_risk_pct,
+            live_max_portfolio_risk_pct=live_portfolio_pct,
             created_at=row["created_at"],
         )
 
@@ -67,6 +81,9 @@ class User:
             "starting_cash": self.starting_cash,
             "risk_pct_per_trade": self.risk_pct_per_trade,
             "max_portfolio_risk_pct": self.max_portfolio_risk_pct,
+            "account_mode": self.account_mode,
+            "live_risk_pct_per_trade": self.live_risk_pct_per_trade,
+            "live_max_portfolio_risk_pct": self.live_max_portfolio_risk_pct,
             "webhook_url": webhook_url,
             "webhook_secret_set": bool(self.webhook_secret),
         }
@@ -304,6 +321,48 @@ def update_account_settings(
             f"UPDATE users SET {', '.join(fields)} WHERE id = ?",
             values,
         )
+    user = get_user_by_id(user_id)
+    if user is None:
+        raise ValueError("user not found")
+    return user
+
+
+def set_account_mode(user_id: str, mode: str) -> User:
+    if mode not in ("paper", "live"):
+        raise ValueError("account_mode must be 'paper' or 'live'")
+    with transaction() as conn:
+        conn.execute("UPDATE users SET account_mode = ? WHERE id = ?", (mode, user_id))
+    user = get_user_by_id(user_id)
+    if user is None:
+        raise ValueError("user not found")
+    return user
+
+
+def update_live_risk_settings(
+    user_id: str,
+    *,
+    risk_pct_per_trade: float | None = None,
+    max_portfolio_risk_pct: float | None = None,
+) -> User:
+    if risk_pct_per_trade is not None and not (0.1 <= risk_pct_per_trade <= 25):
+        raise ValueError("live risk_pct_per_trade must be between 0.1 and 25")
+    if max_portfolio_risk_pct is not None and not (1 <= max_portfolio_risk_pct <= 75):
+        raise ValueError("live max_portfolio_risk_pct must be between 1 and 75")
+
+    fields: list[str] = []
+    values: list[object] = []
+    if risk_pct_per_trade is not None:
+        fields.append("live_risk_pct_per_trade = ?")
+        values.append(risk_pct_per_trade)
+    if max_portfolio_risk_pct is not None:
+        fields.append("live_max_portfolio_risk_pct = ?")
+        values.append(max_portfolio_risk_pct)
+    if not fields:
+        raise ValueError("no settings to update")
+
+    values.append(user_id)
+    with transaction() as conn:
+        conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", values)
     user = get_user_by_id(user_id)
     if user is None:
         raise ValueError("user not found")

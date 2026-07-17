@@ -55,6 +55,9 @@ def init_schema(conn: sqlite3.Connection) -> None:
             risk_pct_per_trade REAL NOT NULL DEFAULT 10,
             max_portfolio_risk_pct REAL NOT NULL DEFAULT 50,
             scanner_migrated INTEGER NOT NULL DEFAULT 1,
+            account_mode TEXT NOT NULL DEFAULT 'paper',
+            live_risk_pct_per_trade REAL NOT NULL DEFAULT 1,
+            live_max_portfolio_risk_pct REAL NOT NULL DEFAULT 10,
             created_at TEXT NOT NULL
         );
 
@@ -82,6 +85,18 @@ def _migrate_users(conn: sqlite3.Connection) -> None:
     if "max_portfolio_risk_pct" not in cols:
         conn.execute(
             "ALTER TABLE users ADD COLUMN max_portfolio_risk_pct REAL NOT NULL DEFAULT 50"
+        )
+    if "account_mode" not in cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN account_mode TEXT NOT NULL DEFAULT 'paper'"
+        )
+    if "live_risk_pct_per_trade" not in cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN live_risk_pct_per_trade REAL NOT NULL DEFAULT 1"
+        )
+    if "live_max_portfolio_risk_pct" not in cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN live_max_portfolio_risk_pct REAL NOT NULL DEFAULT 10"
         )
     if "scanner_migrated" not in cols:
         # One-time: the AI brain used to default off and require a manual

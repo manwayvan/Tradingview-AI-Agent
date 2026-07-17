@@ -412,6 +412,7 @@ async function refreshApp() {
   renderScanner(s.scanner);
   renderFeed(s.engine, s.journal, s.scanner);
   renderAccount(s.user, s.risk);
+  renderBroker(s.broker);
   $("#pill-engine")?.classList.toggle("on", s.engine?.running);
   $("#pill-market")?.classList.toggle("on", s.engine?.market_open);
   $("#pill-updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
@@ -420,6 +421,58 @@ async function refreshApp() {
 async function refreshTradingView() {
   const setup = await api("/api/tradingview/setup");
   renderTradingView(setup, setup.user);
+}
+
+function renderBroker(broker) {
+  if (!broker) return;
+  window._broker = broker;
+  const live = broker.account_mode === "live";
+  $("#broker-mode-pill").textContent = live ? "Live" : "Paper";
+  $("#broker-mode-pill").classList.toggle("on", live);
+
+  const schwab = broker.schwab || {};
+  const statusPill = $("#schwab-status-pill");
+  if (statusPill) {
+    statusPill.textContent = !schwab.configured
+      ? "Not set up on server"
+      : schwab.connected ? "Schwab connected" : "Not connected";
+    statusPill.classList.toggle("on", !!schwab.connected);
+  }
+  const detail = $("#schwab-status-detail");
+  if (detail) detail.textContent = schwab.detail || "";
+
+  const liveBtn = $("#btn-broker-live");
+  const paperBtn = $("#btn-broker-paper");
+  if (liveBtn) {
+    liveBtn.disabled = live || !schwab.connected;
+    liveBtn.textContent = live ? "Currently live" : "Switch to Live";
+  }
+  if (paperBtn) {
+    paperBtn.disabled = !live;
+    paperBtn.textContent = live ? "Switch to Paper" : "Currently paper";
+  }
+
+  const riskInput = $("#live-risk-pct");
+  const portInput = $("#live-portfolio-pct");
+  if (riskInput && !riskInput.dataset.touched) riskInput.value = broker.live_risk_pct_per_trade ?? 1;
+  if (portInput && !portInput.dataset.touched) portInput.value = broker.live_max_portfolio_risk_pct ?? 10;
+
+  const tiles = $("#live-account-tiles");
+  if (tiles) {
+    if (broker.live_summary) {
+      tiles.innerHTML = `
+        <div class="tile"><div class="label">Live cash</div><div class="value">${fmtUsd(broker.live_summary.cash)}</div></div>
+        <div class="tile"><div class="label">Live equity</div><div class="value">${fmtUsd(broker.live_summary.equity)}</div></div>
+        <div class="tile"><div class="label">Open positions</div><div class="value">${broker.live_summary.open_positions ?? 0}</div></div>`;
+    } else {
+      tiles.innerHTML = `<div class="empty">Connect Schwab to see live balances here.</div>`;
+    }
+  }
+}
+
+async function refreshBroker() {
+  const broker = await api("/api/broker");
+  renderBroker(broker);
 }
 
 const TUTORIAL_KEY = "oa_tutorial_v1_done";
@@ -548,7 +601,10 @@ function showPanel(name) {
   $$(".panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === name));
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.nav === name));
   if (name === "tv") refreshTradingView();
-  if (name === "account") renderAccount(window._state?.user, window._state?.risk);
+  if (name === "account") {
+    renderAccount(window._state?.user, window._state?.risk);
+    refreshBroker();
+  }
 }
 
 async function initApp() {
@@ -714,6 +770,66 @@ function bindAppEvents() {
     const r = await api("/api/tradingview/regenerate-secret", { method: "POST" });
     renderTradingView(r, r.user);
     toast("New secret generated");
+  });
+
+  $("#btn-broker-live")?.addEventListener("click", async () => {
+    if (!confirm(
+      "Switch to LIVE trading? Every automatic trade the scanner and AI brain " +
+      "make from now on will place a REAL order in your Schwab account using " +
+      "your live risk settings below. This is real money."
+    )) return;
+    try {
+      await api("/api/broker/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_mode: "live" }),
+      });
+      toast("Switched to live trading");
+      refreshBroker();
+      refreshApp();
+    } catch (ex) {
+      toast(ex.message || "Could not switch to live");
+    }
+  });
+  $("#btn-broker-paper")?.addEventListener("click", async () => {
+    try {
+      await api("/api/broker/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_mode: "paper" }),
+      });
+      toast("Switched to paper trading");
+      refreshBroker();
+      refreshApp();
+    } catch (ex) {
+      toast(ex.message || "Could not switch to paper");
+    }
+  });
+  ["#live-risk-pct", "#live-portfolio-pct"].forEach((sel) => {
+    $(sel)?.addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
+  });
+  $("#live-risk-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await api("/api/broker/live-risk", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          risk_pct_per_trade: parseFloat(f.get("risk_pct_per_trade")),
+          max_portfolio_risk_pct: parseFloat(f.get("max_portfolio_risk_pct")),
+        }),
+      });
+      ["#live-risk-pct", "#live-portfolio-pct"].forEach((sel) => {
+        const el = $(sel);
+        if (el) delete el.dataset.touched;
+      });
+      toast("Live risk settings saved");
+      refreshBroker();
+      refreshApp();
+    } catch (ex) {
+      toast(ex.message || "Could not save live risk settings");
+    }
   });
 
   $("#btn-logout")?.addEventListener("click", async () => {

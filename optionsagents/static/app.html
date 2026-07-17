@@ -220,6 +220,31 @@
         <div class="tiles" id="account-risk-tiles"></div>
         <p class="sub" id="acct-risk-note"></p>
       </div>
+
+      <div class="card">
+        <h2>Live trading <span class="pill" id="broker-mode-pill">Paper</span></h2>
+        <p class="sub">Connect a real Schwab account (successor to TD Ameritrade) to place real orders automatically, using the same scanner and AI brain. Paper and live are completely separate accounts, histories, and risk settings — switching never touches your paper ledger.</p>
+        <div class="btn-row" style="margin-bottom:12px">
+          <span class="pill" id="schwab-status-pill">Checking…</span>
+        </div>
+        <p class="sub" id="schwab-status-detail"></p>
+        <div class="btn-row" style="margin-bottom:14px">
+          <button class="btn primary" id="btn-broker-live" type="button">Switch to Live</button>
+          <button class="btn" id="btn-broker-paper" type="button">Switch to Paper</button>
+        </div>
+        <form id="live-risk-form" class="form-grid" style="margin-bottom:14px">
+          <label>Live risk per trade (% of equity)
+            <input name="risk_pct_per_trade" id="live-risk-pct" type="number" min="0.1" max="25" step="0.1" value="1" required>
+          </label>
+          <label>Live max portfolio risk (% of equity)
+            <input name="max_portfolio_risk_pct" id="live-portfolio-pct" type="number" min="1" max="75" step="1" value="10" required>
+          </label>
+          <label style="align-self:end"><button class="btn primary block" type="submit">Save live risk settings</button></label>
+        </form>
+        <div class="tiles" id="live-account-tiles"></div>
+        <p class="sub">Not connected yet? Run <code>python scripts/schwab_login.py --email {your email}</code> from the server (see README) — it's a one-time interactive login Schwab requires in a real browser.</p>
+      </div>
+
       <div class="card">
         <h2>Profile</h2>
         <p><strong>Email:</strong> <span id="acct-email">—</span></p>
@@ -277,7 +302,7 @@
   </div>
 </div>
 
-<script src="/assets/app.js?v=6"></script>
+<script src="/assets/app.js?v=7"></script>
 <script>App.bindAppEvents(); App.initApp();</script>
 </body>
 </html>

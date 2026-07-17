@@ -8,11 +8,13 @@ layer** that turns that view into concrete, defined-risk option positions and
 paper-trades them — driven from a **web GUI with a set-and-forget strategy
 engine**, the CLI, or **TradingView alerts** via webhook.
 
-> ⚠️ **Paper trading / research only.** Nothing here is financial advice.
-> Options can lose 100% of the premium (and defined-risk spreads their full
-> width) very quickly, especially at short DTE. Test extensively on paper
-> before risking anything, and understand that LLM output is
-> non-deterministic and can be wrong.
+> ⚠️ **Nothing here is financial advice.** Options can lose 100% of the
+> premium (and defined-risk spreads their full width) very quickly,
+> especially at short DTE, and LLM output is non-deterministic and can be
+> wrong. Every account starts on **paper trading** and stays there until
+> you explicitly connect a real Schwab account and switch to live — see
+> [Live trading (Schwab)](#live-trading-schwab). Test extensively on paper
+> first regardless.
 
 ## What's in the box
 
@@ -28,10 +30,12 @@ optionsagents/    NEW: the options trading layer
   pipeline.py       Research -> chain -> strategist -> risk gate -> paper fill
   engine.py         Set-and-forget strategy scheduler + automatic exit management
   autonomous/       NEW: self-directed AI brain (scan → decide → execute)
+  brokers/          NEW: live Schwab execution (OAuth, order placement, fill-or-cancel)
   webhook_server.py Web server: GUI dashboard, strategy API, TradingView webhook
   static/index.html The dashboard GUI (self-contained, light/dark)
   cli.py            optionsagents / run_options.py command line
 pine/             TradingView Pine Script alert templates (day + swing)
+scripts/schwab_login.py  One-time interactive Schwab OAuth login
 tests/            Offline unit tests for the options layer
 docs/UPSTREAM_README.md   Original TradingAgents README
 ```
@@ -200,7 +204,104 @@ risk cap.
 |-----|---------|
 | `/signup` | Create account |
 | `/login` | Sign in |
-| `/app` | Mobile-friendly dashboard (Home, AI, Plans, TradingView, Account) |
+| `/app` | Mobile-friendly dashboard (Home, Orders, Stats, Scanner, Plans, TV, Account) |
+
+## Live trading (Schwab)
+
+> ⚠️ **This places real orders with real money.** Everything above this
+> section is paper trading. Live trading is off by default for every
+> account and stays off until you explicitly connect a Schwab account and
+> switch a specific account to Live — there is no automatic upgrade path
+> from paper to live.
+
+The app can place real options orders through the **Schwab Trader API**,
+the official successor to TD Ameritrade's API (TDA's own API was retired
+after the Schwab migration — if you have an old TDA account, it's a Schwab
+account now and this is the right integration). Robinhood and Webull were
+considered and deliberately not implemented: Robinhood has no official
+trading API (only reverse-engineered private endpoints that can break
+without notice and have led to account suspensions for automated options
+trading), and Webull's official API's options support is newer and less
+established. Schwab is the only one of the three with a documented,
+sanctioned path for automated options orders.
+
+**How it fits together:** the scanner and AI brain don't know or care
+which broker they're trading through — they build the same trade plan
+either way. A separate `account_mode` per user (`paper` or `live`)
+decides whether that plan gets filled locally (`PaperBroker`) or actually
+submitted to Schwab (`SchwabBroker`, in `optionsagents/brokers/`). Paper
+and live are entirely separate ledgers, order histories, and P&L —
+switching modes never touches the other one.
+
+### One-time setup
+
+1. Register a developer app at [developer.schwab.com](https://developer.schwab.com)
+   and request Trader API access (individual/retail trading, not just
+   market data). Schwab's approval can take a few days.
+2. Set the app's redirect URI to `https://127.0.0.1` (you'll copy/paste the
+   redirected URL by hand — no local callback server needed).
+3. Set these on both your local shell (for the login script) **and** your
+   production server's environment variables (Railway service variables,
+   etc. — the running app needs them to refresh tokens and place orders):
+   ```bash
+   SCHWAB_APP_KEY=...
+   SCHWAB_APP_SECRET=...
+   SCHWAB_REDIRECT_URI=https://127.0.0.1
+   ```
+4. Run the one-time interactive login (this step requires a real browser
+   login to schwab.com — it can't be automated):
+   ```bash
+   python scripts/schwab_login.py --email you@example.com
+   ```
+   This saves OAuth tokens to that account's data directory. Schwab's
+   refresh token expires after roughly a week of inactivity — when the
+   Account tab shows "Not connected," rerun this script.
+5. In the app's **Account** tab, under **Live trading**, tap **Switch to
+   Live**. It's disabled until Schwab shows Connected.
+
+### What changes once you're live
+
+- **Automatic execution, no approval step** — the scanner and AI brain
+  place real orders the instant they decide, on the same 5-minute cadence
+  as paper trading. There is currently no "approve before it fires" mode.
+- **Independent risk settings** — the Account tab's **Live trading** card
+  has its own risk-per-trade and max-portfolio-risk percentages, separate
+  from the paper account's. They default small (1% per trade, 10%
+  portfolio) specifically so a bug or a bad week costs little while you
+  validate the integration; raise them once you trust it.
+- **Fill-or-cancel, never a dangling order** — every live order is
+  submitted as a limit at the net mid and polled for ~12 seconds; if it
+  hasn't filled, it's canceled and recorded as a skipped trade, the same
+  way the paper broker records "insufficient cash." The system never
+  leaves a live working order it's lost track of.
+- **Schwab is the source of truth for cash/equity** — the Account tab and
+  API pull your real balance from Schwab on every request; the local
+  ledger exists for the "why did this trade happen" audit trail, same as
+  paper.
+- **No reset button** — obviously; there's no such thing as resetting a
+  real brokerage account. That control only ever applies to paper.
+
+### Before you trust the automatic loop
+
+This is a straightforward, load-bearing integration but it has not been
+exercised against Schwab's live API from this environment (no
+credentials, no network path to verify against) — the order-payload
+shapes and endpoint paths were written from Schwab's documented
+conventions, not confirmed against a live account. **Before letting the
+5-minute loop run unsupervised:**
+
+1. Confirm Schwab shows Connected and the live balance tiles match your
+   actual account.
+2. Trigger one manual cycle (Scanner tab → **Scan now**, or wait for a
+   signal) with your live risk settings still at the small defaults, and
+   watch it happen in the Schwab app in real time.
+3. Check the order in **Orders** → tap it → confirm the fill price, legs,
+   and strategy match what actually executed in Schwab.
+4. Only then raise the live risk percentages, and only as far as you're
+   genuinely comfortable losing on a bad week — this system already had
+   one production bug (a plan-validation crash, fixed) and can have
+   others; automated options trading can lose 100% of a position's
+   premium quickly.
 
 ## CLI usage
 
@@ -311,6 +412,14 @@ prefixes like `NASDAQ:NVDA` are stripped automatically.
   enforced by `mark` / `POST /positions/check`.
 - **Authenticated webhook** — requests must carry the shared secret
   (constant-time compared); the server refuses to start trading without one.
+- **Live trading opt-in only** — every account starts and stays on paper;
+  switching to live requires a connected Schwab account and an explicit,
+  confirmed action in the Account tab. See "Live trading (Schwab)" above.
+- **Live risk isolated from paper** — separate risk-per-trade and
+  max-portfolio-risk settings for live vs. paper, so raising paper-trading
+  risk to test something never silently raises real-money risk.
+- **Fill-or-cancel on live orders** — a live order that doesn't fill within
+  ~12 seconds is canceled, never left as an untracked working order.
 
 ## Tests
 

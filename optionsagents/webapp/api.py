@@ -72,6 +72,15 @@ class AccountSettingsRequest(BaseModel):
     clear_history: bool = True
 
 
+class BrokerModeRequest(BaseModel):
+    account_mode: str = Field(pattern="^(paper|live)$")
+
+
+class LiveRiskSettingsRequest(BaseModel):
+    risk_pct_per_trade: float | None = Field(default=None, ge=0.1, le=25)
+    max_portfolio_risk_pct: float | None = Field(default=None, ge=1, le=75)
+
+
 class StrategyRequest(BaseModel):
     ticker: str = Field(min_length=1, max_length=12)
     mode: str = Field(pattern="^(day|swing)$")
@@ -300,12 +309,59 @@ def reset_account(
     clear_history: bool = True,
 ) -> dict:
     ws = _ws(user, request)
-    ws.broker.reset_account(user.starting_cash, clear_history=clear_history)
+    # Always the paper ledger — there is no "reset" on a real brokerage account.
+    ws.paper_broker.reset_account(user.starting_cash, clear_history=clear_history)
     ws.refresh_risk_limits()
     snap = ws.snapshot_state()
     return {
         "account": snap["account"],
         "risk": snap["risk"],
+    }
+
+
+# ---- broker mode (paper <-> live Schwab) --------------------------------
+
+
+@router.get("/api/broker")
+def broker_state(request: Request, user: User = Depends(require_user)) -> dict:
+    ws = _ws(user, request)
+    return {
+        "account_mode": ws.user.account_mode,
+        "schwab": ws.schwab_status(),
+        "live_risk_pct_per_trade": ws.user.live_risk_pct_per_trade,
+        "live_max_portfolio_risk_pct": ws.user.live_max_portfolio_risk_pct,
+        "paper_summary": ws.paper_broker.summary(),
+        "live_summary": ws.live_broker.summary() if ws.live_broker is not None else None,
+    }
+
+
+@router.post("/api/broker/mode")
+def set_broker_mode(
+    req: BrokerModeRequest, request: Request, user: User = Depends(require_user),
+) -> dict:
+    ws = _ws(user, request)
+    try:
+        ws.set_account_mode(req.account_mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"account_mode": ws.user.account_mode}
+
+
+@router.patch("/api/broker/live-risk")
+def update_live_risk(
+    req: LiveRiskSettingsRequest, request: Request, user: User = Depends(require_user),
+) -> dict:
+    ws = _ws(user, request)
+    try:
+        ws.update_live_risk_settings(
+            risk_pct_per_trade=req.risk_pct_per_trade,
+            max_portfolio_risk_pct=req.max_portfolio_risk_pct,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "live_risk_pct_per_trade": ws.user.live_risk_pct_per_trade,
+        "live_max_portfolio_risk_pct": ws.user.live_max_portfolio_risk_pct,
     }
 
 
