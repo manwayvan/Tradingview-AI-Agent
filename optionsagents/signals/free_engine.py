@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from optionsagents.autonomous.config import DEFAULT_UNIVERSE
 from optionsagents.engine import market_open_now
 from optionsagents.schemas import TradingViewAlert
+from optionsagents.signals import discovery
 from optionsagents.signals.technicals import (
     DaySignalResult,
     SwingSignalResult,
@@ -28,6 +29,7 @@ ET = ZoneInfo("America/New_York")
 DEFAULT_DAY_SCAN_MINUTES = 5
 DEFAULT_SWING_SCAN_TIME = "10:05"
 MAX_FIRED_KEYS = 500
+MAX_SCAN_TICKERS = 45
 
 
 @dataclass
@@ -43,7 +45,8 @@ OnSignal = Callable[[TradingViewAlert], None]
 @dataclass
 class FreeSignalConfig:
     enabled: bool = True
-    watchlist: list[str] = field(default_factory=lambda: list(DEFAULT_UNIVERSE))
+    # Optional pinned extras — the scan universe itself is auto-discovered.
+    watchlist: list[str] = field(default_factory=list)
     day_scan_minutes: int = DEFAULT_DAY_SCAN_MINUTES
     swing_scan_time: str = DEFAULT_SWING_SCAN_TIME
 
@@ -56,10 +59,12 @@ class FreeSignalEngine:
         on_signal: OnSignal,
         state_file: str,
         config: FreeSignalConfig | None = None,
+        discover: Callable[[], list[str]] | None = None,
     ):
         self._on_signal = on_signal
         self.state_file = state_file
         self.config = config or FreeSignalConfig()
+        self._discover = discover or discovery.discover_universe
 
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -81,7 +86,11 @@ class FreeSignalEngine:
             self.config.enabled = bool(data.get("enabled", self.config.enabled))
             watchlist = data.get("watchlist")
             if watchlist:
-                self.config.watchlist = [t.strip().upper() for t in watchlist if t.strip()]
+                cleaned = [t.strip().upper() for t in watchlist if t.strip()]
+                # Legacy states stored the old default universe as a watchlist;
+                # treat that as "nothing pinned" so auto-discovery takes over.
+                if cleaned != list(DEFAULT_UNIVERSE):
+                    self.config.watchlist = cleaned
             self.config.day_scan_minutes = int(
                 data.get("day_scan_minutes", self.config.day_scan_minutes)
             )
@@ -129,6 +138,7 @@ class FreeSignalEngine:
         self._event("info", f"Free signals {'enabled' if enabled else 'paused'}")
 
     def set_watchlist(self, tickers: list[str]) -> None:
+        """Pin optional extra tickers — auto-discovery covers the rest."""
         cleaned = []
         seen: set[str] = set()
         for raw in tickers:
@@ -136,12 +146,31 @@ class FreeSignalEngine:
             if t and t not in seen:
                 seen.add(t)
                 cleaned.append(t)
-        if not cleaned:
-            raise ValueError("watchlist must include at least one ticker")
         with self._lock:
             self.config.watchlist = cleaned
         self._save_state()
-        self._event("info", f"Watchlist updated ({len(cleaned)} tickers)")
+        self._event("info", f"Pinned tickers updated ({len(cleaned)})")
+
+    # ---- universe ------------------------------------------------------
+
+    def scan_universe(self) -> list[str]:
+        """Auto-discovered market movers + any pinned tickers, deduped."""
+        with self._lock:
+            pinned = list(self.config.watchlist)
+        try:
+            found = [str(t).upper() for t in self._discover()]
+        except Exception as exc:
+            logger.warning("universe discovery failed: %s", exc)
+            found = []
+        merged: list[str] = []
+        seen: set[str] = set()
+        for ticker in pinned + found:
+            if ticker and ticker not in seen:
+                seen.add(ticker)
+                merged.append(ticker)
+        if not merged:
+            merged = list(DEFAULT_UNIVERSE)
+        return merged[:MAX_SCAN_TICKERS]
 
     # ---- scanning ------------------------------------------------------
 
@@ -201,9 +230,8 @@ class FreeSignalEngine:
         """Run one scan cycle immediately (for tests and manual trigger)."""
         day_hits = 0
         swing_hits = 0
-        with self._lock:
-            watchlist = list(self.config.watchlist)
-        for ticker in watchlist:
+        universe = self.scan_universe()
+        for ticker in universe:
             try:
                 day = scan_day_signal(ticker)
                 if day:
@@ -221,7 +249,11 @@ class FreeSignalEngine:
         self._last_day_scan = datetime.now(tz=ET)
         self._last_swing_scan_date = datetime.now(tz=ET).date().isoformat()
         self._save_state()
-        return {"day_signals": day_hits, "swing_signals": swing_hits}
+        return {
+            "day_signals": day_hits,
+            "swing_signals": swing_hits,
+            "tickers_scanned": len(universe),
+        }
 
     def _due_day_scan(self, now: datetime) -> bool:
         if not market_open_now(now):
@@ -240,10 +272,9 @@ class FreeSignalEngine:
         return self._last_swing_scan_date != today
 
     def _scan_day_watchlist(self) -> None:
-        with self._lock:
-            watchlist = list(self.config.watchlist)
-        self._event("info", f"Day scan — {len(watchlist)} tickers")
-        for ticker in watchlist:
+        universe = self.scan_universe()
+        self._event("info", f"Day scan — {len(universe)} auto-discovered tickers")
+        for ticker in universe:
             try:
                 result = scan_day_signal(ticker)
                 if result:
@@ -254,10 +285,9 @@ class FreeSignalEngine:
         self._save_state()
 
     def _scan_swing_watchlist(self) -> None:
-        with self._lock:
-            watchlist = list(self.config.watchlist)
-        self._event("info", f"Swing scan — {len(watchlist)} tickers")
-        for ticker in watchlist:
+        universe = self.scan_universe()
+        self._event("info", f"Swing scan — {len(universe)} auto-discovered tickers")
+        for ticker in universe:
             try:
                 result = scan_swing_signal(ticker)
                 if result:
@@ -311,7 +341,11 @@ class FreeSignalEngine:
                 "day_scan_minutes": self.config.day_scan_minutes,
                 "swing_scan_time": self.config.swing_scan_time,
             }
+        universe = self.scan_universe()
         return {
+            "universe": universe,
+            "universe_size": len(universe),
+            "discovery": discovery.last_discovery_meta(),
             "running": self.running,
             "market_open": market_open_now(now),
             "due_day_scan": self._due_day_scan(now) if self.config.enabled else False,

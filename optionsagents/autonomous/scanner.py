@@ -88,9 +88,22 @@ class MarketScanner:
         self,
         universe: tuple[str, ...] | None = None,
         fetch_history: FetchHistory | None = None,
+        universe_provider: Callable[[], list[str]] | None = None,
     ):
         self.universe = universe or DEFAULT_UNIVERSE
         self.fetch_history = fetch_history or _default_fetch
+        self.universe_provider = universe_provider
+
+    def current_universe(self) -> tuple[str, ...]:
+        """Dynamic universe from the provider (auto-discovery), else static."""
+        if self.universe_provider is not None:
+            try:
+                found = tuple(str(t).upper() for t in self.universe_provider())
+                if found:
+                    return found
+            except Exception as exc:
+                logger.debug("universe provider failed: %s", exc)
+        return tuple(self.universe)
 
     def scan(
         self,
@@ -108,7 +121,7 @@ class MarketScanner:
         bench_ret_20d = _pct_return(bench["Close"], 20) if not bench.empty else 0.0
 
         candidates: list[StockCandidate] = []
-        for ticker in self.universe:
+        for ticker in self.current_universe():
             if ticker.upper() == benchmark.upper():
                 continue
             try:

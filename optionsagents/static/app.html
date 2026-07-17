@@ -29,7 +29,7 @@
 
     <section class="panel active" data-panel="home">
       <div class="banner" id="signals-banner">
-        <strong>Scanner is on.</strong> The system scans for entries every 5 minutes during market hours and trades automatically — no TradingView subscription needed.
+        <strong>Scanner is on.</strong> It finds the best setups across the whole market and checks for entries every 5 minutes automatically — no watchlist or TradingView subscription needed.
       </div>
       <div class="tiles" id="home-tiles"></div>
 
@@ -101,19 +101,14 @@
     <section class="panel" data-panel="scanner">
       <div class="card">
         <h2>Market scanner</h2>
-        <p class="sub">One switch runs the whole scanning process. Every 5 minutes during market hours the system scans your watchlist with EMA/VWAP + EMA/RSI rules <em>and</em> lets the AI brain pick setups from its universe — each entry is sized to your risk % from the Account tab and auto-closed on target, stop, or expiry.</p>
+        <p class="sub">No watchlist needed — the scanner finds candidates across the whole market by itself. Every 5 minutes during market hours it pulls the most active names, biggest gainers and losers, and trending tickers from free market data, filters out illiquid ones, runs EMA/VWAP + EMA/RSI entry rules, <em>and</em> lets the AI brain rank and pick the best setups. Every entry is sized to your risk % from the Account tab and auto-closed on target, stop, or expiry.</p>
         <div class="btn-row" style="margin-bottom:12px">
           <button class="btn primary" id="btn-scanner-toggle">Start scanning</button>
           <button class="btn" id="btn-scanner-run">Scan now</button>
         </div>
         <div class="tiles" id="scanner-tiles"></div>
         <p class="sub" id="scanner-status"></p>
-        <form id="watchlist-form" class="form-grid" style="margin-bottom:12px">
-          <label style="grid-column:1/-1">Watchlist (comma-separated tickers)
-            <input name="tickers" id="watchlist-input" placeholder="SPY, QQQ, NVDA, AAPL" required>
-          </label>
-          <label style="align-self:end"><button class="btn primary block" type="submit">Save watchlist</button></label>
-        </form>
+        <p class="sub" id="scanner-universe" style="word-break:break-word"></p>
         <div class="feed" id="scanner-feed"></div>
       </div>
       <div class="card">
@@ -282,7 +277,7 @@
   </div>
 </div>
 
-<script src="/assets/app.js?v=5"></script>
+<script src="/assets/app.js?v=6"></script>
 <script>App.bindAppEvents(); App.initApp();</script>
 </body>
 </html>

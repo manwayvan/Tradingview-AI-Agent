@@ -178,6 +178,12 @@ class AutonomousOrchestrator:
         threading.Thread(target=self._run_cycle, daemon=True).start()
         return True
 
+    def _universe_size(self) -> int:
+        try:
+            return len(self.scanner.current_universe())
+        except Exception:
+            return len(self.config.universe)
+
     # ---- core cycle ----------------------------------------------------
 
     def _loop(self) -> None:
@@ -193,7 +199,7 @@ class AutonomousOrchestrator:
         self._running_cycle = True
         cycle_id = uuid.uuid4().hex[:8]
         started = datetime.now(tz=ET)
-        self._event("run", f"Cycle {cycle_id} starting — scanning {len(self.config.universe)} names...")
+        self._event("run", f"Cycle {cycle_id} starting — scanning {self._universe_size()} names...")
 
         outcomes: list[str] = []
         decision: BrainDecision | None = None
@@ -297,7 +303,7 @@ class AutonomousOrchestrator:
             "market_open": market_open_now(),
             "due": self.due(),
             "config": {
-                "universe_size": len(self.config.universe),
+                "universe_size": self._universe_size(),
                 "scan_top_n": self.config.scan_top_n,
                 "cycle_interval_minutes": self.config.cycle_interval_minutes,
                 "max_trades_per_cycle": self.config.max_trades_per_cycle,

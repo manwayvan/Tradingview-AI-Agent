@@ -295,12 +295,13 @@ function renderScanner(scanner) {
     runBtn.textContent = scanner.cycle_running ? "Scanning…" : "Scan now";
   }
   const risk = window._state?.risk;
+  const disc = scanner.discovery || {};
   const tiles = $("#scanner-tiles");
   if (tiles) {
     tiles.innerHTML = `
       <div class="tile"><div class="label">Status</div><div class="value">${enabled ? "on" : "off"}</div><div class="sub">${scanner.market_open ? "market open" : "market closed"}</div></div>
       <div class="tile"><div class="label">Scans every</div><div class="value">${scanner.scan_interval_minutes ?? 5}m</div><div class="sub">during market hours</div></div>
-      <div class="tile"><div class="label">Coverage</div><div class="value">${(scanner.watchlist || []).length}+${scanner.ai_universe_size ?? 0}</div><div class="sub">watchlist + AI universe</div></div>
+      <div class="tile"><div class="label">Universe</div><div class="value">${scanner.universe_size ?? 0}</div><div class="sub">${disc.auto ? "auto-discovered" : "built-in fallback"}</div></div>
       <div class="tile"><div class="label">Trade risk</div><div class="value">${fmtUsd(risk?.trade_budget_usd)}</div><div class="sub">${risk?.risk_pct_per_trade ?? "–"}% equity</div></div>`;
   }
   const st = $("#scanner-status");
@@ -309,12 +310,21 @@ function renderScanner(scanner) {
       ? `Last scan ${scanner.last_scan.slice(0, 16).replace("T", " ")}`
       : "No scans yet.";
     if (scanner.last_ai_result) txt += ` · AI opened ${scanner.last_ai_result.trades_opened}`;
+    if (disc.auto) {
+      const parts = [];
+      if (disc.most_actives) parts.push(`${disc.most_actives} most active`);
+      if (disc.day_gainers) parts.push(`${disc.day_gainers} gainers`);
+      if (disc.day_losers) parts.push(`${disc.day_losers} losers`);
+      if (disc.trending) parts.push(`${disc.trending} trending`);
+      if (parts.length) txt += ` · sources: ${parts.join(", ")}`;
+    }
     if (scanner.risk?.kill_switch_active) txt = "Kill switch active — daily loss limit hit (includes open P&L).";
     st.textContent = txt;
   }
-  const input = $("#watchlist-input");
-  if (input && scanner.watchlist?.length && !input.dataset.touched) {
-    input.value = scanner.watchlist.join(", ");
+  const uni = $("#scanner-universe");
+  if (uni) {
+    const list = scanner.universe || [];
+    uni.textContent = list.length ? `Now watching: ${list.join(", ")}` : "";
   }
   const feed = $("#scanner-feed");
   if (feed) {
@@ -447,11 +457,11 @@ const TUTORIAL_STEPS = [
     title: "Start the scanner",
     html: `
       <h3>2. Scanner tab — one switch</h3>
-      <p>Go to <strong>Scanner</strong> and tap <strong>Start scanning</strong>. No paid TradingView plan required.</p>
+      <p>Go to <strong>Scanner</strong> and tap <strong>Start scanning</strong>. No watchlist or paid TradingView plan required.</p>
       <ul>
         <li>Once started, the system scans for entries <strong>every 5 minutes</strong> during market hours — automatically</li>
-        <li>Rule-based signals watch your <strong>watchlist</strong> (edit it and tap Save)</li>
-        <li>The AI brain also picks setups from a wider universe, sized to your risk % from Account</li>
+        <li>It finds candidates across the whole market by itself: most active names, biggest movers, trending tickers</li>
+        <li>Rule-based entry signals + the AI brain pick the best setups, sized to your risk % from Account</li>
       </ul>
       <p>Tap <strong>Scan now</strong> to test immediately during market hours.</p>`,
     nav: "scanner",
@@ -672,28 +682,12 @@ function bindAppEvents() {
   $("#btn-scanner-run")?.addEventListener("click", async () => {
     try {
       const r = await api("/api/scanner/run", { method: "POST" });
-      toast(`Scan done · day ${r.day_signals} · swing ${r.swing_signals}${r.ai_cycle_started ? " · AI cycle running" : ""}`);
+      toast(`Scanned ${r.tickers_scanned ?? "?"} tickers · day ${r.day_signals} · swing ${r.swing_signals}${r.ai_cycle_started ? " · AI cycle running" : ""}`);
       refreshApp();
     } catch (ex) {
       toast(ex.message || "Scan failed");
     }
   });
-  $("#watchlist-input")?.addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
-  $("#watchlist-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const f = new FormData(e.target);
-    const tickers = String(f.get("tickers")).split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean);
-    await api("/api/scanner/watchlist", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tickers }),
-    });
-    toast("Watchlist saved");
-    const input = $("#watchlist-input");
-    if (input) delete input.dataset.touched;
-    refreshApp();
-  });
-
   $("#btn-copy-url")?.addEventListener("click", () => copyText($("#tv-webhook-url")?.textContent || ""));
   $("#btn-copy-secret")?.addEventListener("click", () => copyText($("#tv-secret")?.textContent || ""));
   $("#btn-copy-pine-day")?.addEventListener("click", () => copyText($("#pine-day")?.textContent || ""));

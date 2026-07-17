@@ -111,6 +111,7 @@ def test_free_engine_fires_and_dedupes(tmp_path):
         on_signal=on_signal,
         state_file=str(state_file),
         config=FreeSignalConfig(enabled=True, watchlist=["SPY"]),
+        discover=lambda: [],  # offline: scan only the pinned ticker
     )
 
     df_day = _make_5m_bars(30, bullish_cross=True)
@@ -156,7 +157,8 @@ def test_signals_api_toggle_and_watchlist(client, monkeypatch):
 
     state = client.get("/api/state").json()
     assert state["free_signals"]["config"]["enabled"] is True
-    assert "SPY" in state["free_signals"]["config"]["watchlist"]
+    # No watchlist required — the universe is discovered (or falls back).
+    assert "SPY" in state["free_signals"]["universe"]
 
     off = client.post("/api/signals/toggle").json()
     assert off["enabled"] is False
@@ -186,7 +188,10 @@ def test_scanner_api_one_switch_for_both_engines(client):
 
     state = client.get("/api/scanner").json()
     assert state["scan_interval_minutes"] == 5
-    assert "SPY" in state["watchlist"]
+    # Universe is auto-discovered (falls back to built-in liquid set offline).
+    assert "SPY" in state["universe"]
+    assert state["universe_size"] > 0
+    assert state["pinned"] == []  # no watchlist needed
     assert state["enabled"] is True  # free signals default on
 
     # one toggle flips both engines together
@@ -205,5 +210,9 @@ def test_scanner_api_one_switch_for_both_engines(client):
     assert full["scanner"]["enabled"] is True
     assert full["autonomous"]["config"]["cycle_interval_minutes"] == 5
 
+    # Pinning tickers is optional — they join the auto-discovered universe.
     wl = client.put("/api/scanner/watchlist", json={"tickers": ["SPY", "QQQ"]}).json()
     assert wl["watchlist"] == ["SPY", "QQQ"]
+    state = client.get("/api/scanner").json()
+    assert state["pinned"] == ["SPY", "QQQ"]
+    assert "SPY" in state["universe"]

@@ -119,7 +119,7 @@ python run_options.py serve
 Then open **http://localhost:8000** — you'll land on the sign-in page.
 
 1. **Create an account** (email + password). Each user gets an isolated paper ledger, strategies, and AI brain.
-2. Open the **Scanner** tab and tap **Start scanning** — one switch runs the whole scanning process. Every 5 minutes during market hours the server scans your watchlist with the same EMA/VWAP/RSI rules as the Pine scripts **and** lets the AI brain pick setups from its universe, opening paper trades automatically. No TradingView subscription required.
+2. Open the **Scanner** tab and tap **Start scanning** — one switch runs the whole scanning process. **No watchlist needed:** every 5 minutes during market hours the server discovers candidates across the whole market from free Yahoo screeners (most actives, top gainers/losers, trending), filters out illiquid names, applies the same EMA/VWAP/RSI rules as the Pine scripts, **and** lets the AI brain rank and pick the best setups — opening paper trades automatically. No TradingView subscription required.
 3. *(Optional)* Open the **TV** tab if you have a **paid** TradingView plan and want chart alerts via webhook instead.
 4. *(Optional)* Add scheduled per-ticker strategies from **Plans**.
 
@@ -235,7 +235,11 @@ The app includes a **free signal engine** that replicates the Pine script logic 
 | Day (5m) | EMA 9/21 crossover + VWAP filter | `buy` / `sell` → fast options path |
 | Swing (daily) | EMA 20/50 crossover + RSI band | `analyze` → full multi-agent research |
 
-- Enabled by default for every account; configure watchlist on the **Scanner** tab.
+- Enabled by default for every account; **the scan universe is discovered
+  automatically** from free Yahoo screeners (most actives, day gainers/losers,
+  trending) filtered for price, dollar volume, and market cap — no watchlist
+  to maintain. Falls back to a built-in liquid universe if the screeners are
+  unreachable.
 - Scans during US market hours (day) and once daily after 10:05 ET (swing).
 - Uses yfinance for price data — no paid charting subscription.
 

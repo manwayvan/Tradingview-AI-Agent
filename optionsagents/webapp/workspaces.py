@@ -12,6 +12,7 @@ from optionsagents.autonomous.config import AutonomousConfig
 from optionsagents.autonomous.market_context import build_market_context
 from optionsagents.autonomous.orchestrator import AutonomousOrchestrator
 from optionsagents.autonomous.portfolio_risk import PortfolioRiskManager
+from optionsagents.autonomous.scanner import MarketScanner
 from optionsagents.engine import Strategy, StrategyEngine
 from optionsagents.paper_broker import PaperBroker
 from optionsagents.paths import data_root
@@ -24,6 +25,7 @@ from optionsagents.risk import (
     trade_risk_budget,
 )
 from optionsagents.schemas import TradingViewAlert
+from optionsagents.signals import discovery
 from optionsagents.signals.free_engine import FreeSignalEngine
 from optionsagents.stats import compute_stats
 from optionsagents.trade_gates import TradeRequest, check_all_gates, direction_from_signal
@@ -60,14 +62,19 @@ class UserWorkspace:
             check_positions=self._check_positions,
             strategies_file=self.strategies_file,
         )
+        auto_config = AutonomousConfig.from_env().with_overrides(
+            enabled=user.autonomous_enabled,
+            state_file=self.autonomous_state_file,
+        )
         self.orchestrator = AutonomousOrchestrator(
             execute_trade=self._execute_autonomous_trade,
             get_portfolio_summary=self._portfolio_summary,
             get_open_tickers=self._open_tickers,
             get_broker=lambda: self.broker,
-            config=AutonomousConfig.from_env().with_overrides(
-                enabled=user.autonomous_enabled,
-                state_file=self.autonomous_state_file,
+            config=auto_config,
+            scanner=MarketScanner(
+                universe=auto_config.universe,
+                universe_provider=discovery.discover_universe,
             ),
             brain=self._build_brain(),
             memory_context_fn=self._memory_context,
@@ -430,8 +437,10 @@ class UserWorkspace:
                 self.free_signals.config.day_scan_minutes,
                 self.orchestrator.config.cycle_interval_minutes,
             ),
-            "watchlist": list(self.free_signals.config.watchlist),
-            "ai_universe_size": len(self.orchestrator.config.universe),
+            "universe": signals.get("universe", []),
+            "universe_size": signals.get("universe_size", 0),
+            "discovery": signals.get("discovery", {}),
+            "pinned": list(self.free_signals.config.watchlist),
             "cycle_running": auto.get("cycle_running", False),
             "last_scan": signals.get("last_day_scan"),
             "last_ai_cycle": auto.get("last_cycle"),
