@@ -98,7 +98,7 @@ Market and options-chain data come from yfinance by default (no key needed).
 
 **Single branch:** `main` only — no forks, no feature branches. Railway deploys from `main`.  
 See [docs/BRANCH_POLICY.md](docs/BRANCH_POLICY.md). Production URL:
-`https://moneymaker9000-production.up.railway.app`  
+`https://tradingview-ai-agent-production.up.railway.app`  
 If Netlify fails looking for `claude/options-trading-agent-k4y8cr`, point its
 production branch at `main` — [docs/NETLIFY.md](docs/NETLIFY.md).
 

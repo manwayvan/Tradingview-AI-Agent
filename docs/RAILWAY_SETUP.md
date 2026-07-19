@@ -10,13 +10,13 @@ You connected the repo. Finish these steps in the [Railway dashboard](https://ra
 | | |
 |--|--|
 | Railway project | [appealing-energy](https://railway.com/project/01f60eda-6cde-4506-b8a8-bd9d3a827670) |
-| Service | `moneymaker9000` |
-| Public URL | `https://moneymaker9000-production.up.railway.app` |
+| Service | `Tradingview-AI-Agent` |
+| Public URL | `https://tradingview-ai-agent-production.up.railway.app` |
 
 If that URL returns Railway’s JSON `Application not found`, the service is not
 serving traffic — open the project → **Deployments → Redeploy** from `main`
 (or push a commit to `main` and wait for the GitHub commit status
-`appealing-energy - moneymaker9000`).
+`appealing-energy - Tradingview-AI-Agent`)..
 
 ## 0. Source branch
 
@@ -47,7 +47,7 @@ Without this, accounts reset on every redeploy.
 | Variable | Value | Required |
 |----------|--------|----------|
 | `OPTIONS_DATA_DIR` | `/data` | Yes |
-| `OPTIONS_PUBLIC_URL` | `https://moneymaker9000-production.up.railway.app` | Yes |
+| `OPTIONS_PUBLIC_URL` | `https://tradingview-ai-agent-production.up.railway.app` | Yes |
 | `OPTIONS_COOKIE_SECURE` | `true` | Yes |
 | `OPENAI_API_KEY` | your key | Yes (or Anthropic/Google) |
 | `AUTONOMOUS_ENABLED` | `false` | Optional (enable from UI later) |
@@ -71,10 +71,10 @@ Uvicorn running on http://0.0.0.0:XXXX
 Replace with your Railway URL (this project’s default shown):
 
 ```bash
-curl https://moneymaker9000-production.up.railway.app/health
+curl https://tradingview-ai-agent-production.up.railway.app/health
 # → {"status":"ok","users":0,...}
 
-open https://moneymaker9000-production.up.railway.app/signup
+open https://tradingview-ai-agent-production.up.railway.app/signup
 ```
 
 Create an account → open **TV** tab → copy webhook URL for TradingView.
@@ -84,7 +84,7 @@ Create an account → open **TV** tab → copy webhook URL for TradingView.
 Webhook URL:
 
 ```
-https://moneymaker9000-production.up.railway.app/webhook/tradingview
+https://tradingview-ai-agent-production.up.railway.app/webhook/tradingview
 ```
 
 Each user’s **personal secret** is on the TV tab after sign-in (embedded in the Pine script). TradingView needs paid plan + 2FA.

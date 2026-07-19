@@ -37,17 +37,17 @@ In Railway → **Settings → Source**:
 - **Root directory:** `/`
 
 Project: [appealing-energy](https://railway.com/project/01f60eda-6cde-4506-b8a8-bd9d3a827670)  
-Service: `moneymaker9000`  
-Public URL (after domain is active): `https://moneymaker9000-production.up.railway.app`
+Service: `Tradingview-AI-Agent`  
+Public URL (after domain is active): `https://tradingview-ai-agent-production.up.railway.app`
 
 Every push to `main` should trigger a Railway deploy. Confirm with:
 
 ```bash
 gh api repos/manwayvan/Tradingview-AI-Agent/commits/main/status \
   --jq '.statuses[] | select(.context|test("railway|moneymaker";"i"))'
-# expect state=success and description containing moneymaker9000-production.up.railway.app
+# expect state=success and description containing tradingview-ai-agent-production.up.railway.app
 
-curl -sS https://moneymaker9000-production.up.railway.app/health
+curl -sS https://tradingview-ai-agent-production.up.railway.app/health
 # → {"status":"ok", ...}
 ```
 
