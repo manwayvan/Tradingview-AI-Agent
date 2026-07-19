@@ -38,16 +38,16 @@ In Railway → **Settings → Source**:
 
 Project: [appealing-energy](https://railway.com/project/01f60eda-6cde-4506-b8a8-bd9d3a827670)  
 Service: `Tradingview-AI-Agent`  
-Public URL (after domain is active): `https://tradingview-ai-agent-production.up.railway.app`
+Public URL (after domain is active): `https://moneymaker9000.up.railway.app`
 
 Every push to `main` should trigger a Railway deploy. Confirm with:
 
 ```bash
 gh api repos/manwayvan/Tradingview-AI-Agent/commits/main/status \
-  --jq '.statuses[] | select(.context|test("railway|moneymaker";"i"))'
-# expect state=success and description containing tradingview-ai-agent-production.up.railway.app
+  --jq '.statuses[] | select(.context|test("railway|Tradingview";"i"))'
+# expect state=success and description containing moneymaker9000.up.railway.app
 
-curl -sS https://tradingview-ai-agent-production.up.railway.app/health
+curl -sS https://moneymaker9000.up.railway.app/health
 # → {"status":"ok", ...}
 ```
 

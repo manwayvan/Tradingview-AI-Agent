@@ -34,7 +34,7 @@ redirects to Railway). The trading API does **not** run on Netlify — see
 | `netlify.toml` | Build: publish `netlify/public` only |
 | `netlify/public/index.html` | Redirect / link to Railway production |
 
-Railway URL: `https://tradingview-ai-agent-production.up.railway.app`
+Railway URL: `https://moneymaker9000.up.railway.app`
 
 ## Optional: stop using Netlify
 
