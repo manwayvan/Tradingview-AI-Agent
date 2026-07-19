@@ -96,8 +96,9 @@ Market and options-chain data come from yfinance by default (no key needed).
 
 ## Branch & deploy
 
-**Single branch:** `main` — Railway and all production deploys use `main` only.  
-See [docs/BRANCH_POLICY.md](docs/BRANCH_POLICY.md).
+**Single branch:** `main` only — no forks, no feature branches. Railway deploys from `main`.  
+See [docs/BRANCH_POLICY.md](docs/BRANCH_POLICY.md). Production URL:
+`https://moneymaker9000-production.up.railway.app`
 
 ## Local development (test before deploy)
 

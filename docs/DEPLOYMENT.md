@@ -54,14 +54,16 @@ small fix burns that quota fast.
 2. **Run `make test` before every commit**
 3. **Disable** Netlify “deploy on every push” while iterating
 4. **Deploy manually** when a version is ready (Netlify dashboard → Trigger deploy)
-5. Or use a `production` branch: only merges to `production` trigger Netlify
+
+This repo stays on **`main` only** for the real app (Railway). Do not add a
+second “production” branch — see [BRANCH_POLICY.md](./BRANCH_POLICY.md).
 
 ### Better: skip Netlify for the app entirely
 
 Point a custom domain at Railway/Render instead. You get:
 
 - Unlimited local testing
-- One production deploy when you choose
+- One production deploy from `main` when you choose
 - No rewrite for background jobs / SQLite
 
 ## One-command production files
