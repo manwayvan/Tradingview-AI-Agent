@@ -19,6 +19,15 @@ git ls-remote --heads origin
 - Open PRs: **none**
 - Legacy `cursor/*` and `claude/*` heads: **removed**
 
+## Netlify
+
+Site **moneymaker9000** must use production branch **`main`**.
+
+If deploys fail with `git ref refs/heads/claude/options-trading-agent-k4y8cr does
+not exist`, the site is still pointed at a deleted branch — **do not recreate
+it**. Change the production branch to `main` instead:
+[docs/NETLIFY.md](./NETLIFY.md).
+
 ## Railway
 
 In Railway → **Settings → Source**:

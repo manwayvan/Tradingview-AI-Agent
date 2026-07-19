@@ -39,6 +39,11 @@ with a persistent volume for `~/.tradingagents`.
 Use Netlify **only** for a marketing/landing page (static HTML). Host the **API
 elsewhere** (Railway/Render) and set `OPTIONS_PUBLIC_URL` to that API domain.
 
+This repo already ships that setup: `netlify.toml` + `netlify/public/` redirect
+to Railway. **Production branch must be `main`** — see [NETLIFY.md](./NETLIFY.md).
+If Netlify still references `claude/options-trading-agent-k4y8cr`, update the
+site setting; do not recreate that branch.
+
 A single-repo “full app on Netlify” would require rewriting the backend as
 serverless functions + external database (Postgres) + external job queue — a
 large architectural change, not a config tweak.

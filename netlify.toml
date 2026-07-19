@@ -1,0 +1,18 @@
+# Netlify site: moneymaker9000
+# Production branch MUST be `main` (Site settings → Build & deploy → Branches).
+# Do not point Netlify at deleted branches such as claude/options-trading-agent-k4y8cr.
+#
+# This publishes a static redirect only. The Python API / trading engine runs on
+# Railway — see docs/DEPLOYMENT.md and docs/RAILWAY_SETUP.md.
+
+[build]
+  command = "echo 'Publishing static landing (API on Railway)'"
+  publish = "netlify/public"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Ignore everything except the static landing so Netlify does not try to
+# install Python / run the app server.
+[build.processing]
+  skip_processing = true
