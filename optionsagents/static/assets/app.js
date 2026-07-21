@@ -333,6 +333,19 @@ function renderScanner(scanner) {
       ? events.map((e) => `<div class="ev"><time>${esc(e.time)}</time><span class="kind">${esc(e.engine === "ai" ? "AI" : "signal")}:${esc(e.kind)}</span><span>${esc(e.message)}</span></div>`).join("")
       : '<div class="empty">Start the scanner — it checks for entries every 5 minutes during market hours.</div>';
   }
+  const llmBanner = $("#llm-banner");
+  if (llmBanner) {
+    const llm = scanner.llm || {};
+    const ready = !!llm.ready;
+    llmBanner.classList.toggle("hidden", ready);
+    if (!ready) {
+      const envVar = llm.env_var || "OPENAI_API_KEY";
+      llmBanner.innerHTML =
+        `<strong>LLM API key missing.</strong> Full AI research is paused until you set ` +
+        `<code>${esc(envVar)}</code> (or Anthropic/Google) in Railway → Variables, then redeploy. ` +
+        `The scanner still runs on rule-based buy/sell signals.`;
+    }
+  }
   const banner = $("#signals-banner");
   if (banner) banner.classList.toggle("hidden", !enabled);
 }

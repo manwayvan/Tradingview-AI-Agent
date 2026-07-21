@@ -146,3 +146,56 @@ def test_ensure_api_key_updates_existing_env_file(monkeypatch, tmp_path, cli_uti
     assert "OPENAI_API_KEY" in content and "sk-existing" in content
     assert "OTHER=value" in content
     assert "OPENROUTER_API_KEY" in content and "sk-openrouter-new" in content
+
+
+# ---- Auto-detect / resolve helpers ----------------------------------------
+
+
+def _clear_llm_keys(monkeypatch):
+    for env_var in PROVIDER_API_KEY_ENV.values():
+        if env_var:
+            monkeypatch.delenv(env_var, raising=False)
+    monkeypatch.delenv("TRADINGAGENTS_LLM_PROVIDER", raising=False)
+
+
+def test_api_key_configured_reads_env(monkeypatch):
+    from tradingagents.llm_clients.api_key_env import api_key_configured
+
+    _clear_llm_keys(monkeypatch)
+    assert api_key_configured("openai") is False
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    assert api_key_configured("openai") is True
+    assert api_key_configured("ollama") is True
+
+
+def test_detect_llm_provider_prefers_first_available(monkeypatch):
+    from tradingagents.llm_clients.api_key_env import detect_llm_provider
+
+    _clear_llm_keys(monkeypatch)
+    assert detect_llm_provider() is None
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+    assert detect_llm_provider() == "anthropic"
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    assert detect_llm_provider() == "openai"
+
+
+def test_resolve_llm_config_switches_when_openai_missing(monkeypatch):
+    from tradingagents.llm_clients.api_key_env import resolve_llm_config
+
+    _clear_llm_keys(monkeypatch)
+    monkeypatch.setenv("GOOGLE_API_KEY", "gk-test")
+    cfg = resolve_llm_config({"llm_provider": "openai", "deep_think_llm": "gpt-5.5",
+                              "quick_think_llm": "gpt-5.4-mini", "backend_url": None})
+    assert cfg["llm_provider"] == "google"
+    assert "gemini" in cfg["deep_think_llm"]
+    assert "gemini" in cfg["quick_think_llm"]
+
+
+def test_llm_status_reports_missing_key(monkeypatch):
+    from tradingagents.llm_clients.api_key_env import llm_status
+
+    _clear_llm_keys(monkeypatch)
+    status = llm_status({"llm_provider": "openai"})
+    assert status["ready"] is False
+    assert status["env_var"] == "OPENAI_API_KEY"
+    assert "OPENAI_API_KEY" in status["message"]

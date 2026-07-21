@@ -185,17 +185,23 @@ Respond with JSON:
 
             if bullish and cand.return_5d > 0.01:
                 mode = "day" if abs(cand.return_5d) > 0.03 else "swing"
-                signal = "buy" if mode == "day" else "analyze"
+                # Full multi-agent "analyze" needs an LLM. Without one, take the
+                # fast directional path so the scanner keeps trading instead of
+                # raising "API key for provider 'openai' is not set".
+                signal = "buy" if (mode == "day" or self.llm is None) else "analyze"
                 conviction = min(0.95, 0.5 + cand.score * 0.4)
+                rationale = (
+                    f"Rules fallback: positive 20d momentum ({cand.return_20d:+.1%}), "
+                    f"relative strength {cand.rel_strength_vs_spy:+.1%}, score {cand.score:.2f}."
+                )
+                if self.llm is None and mode == "swing":
+                    rationale += " (no LLM key — using buy instead of full analyze)."
                 directives.append(TradeDirective(
                     ticker=cand.ticker,
                     mode=mode,
                     signal=signal,
                     conviction=round(conviction, 2),
-                    rationale=(
-                        f"Rules fallback: positive 20d momentum ({cand.return_20d:+.1%}), "
-                        f"relative strength {cand.rel_strength_vs_spy:+.1%}, score {cand.score:.2f}."
-                    ),
+                    rationale=rationale,
                 ))
             elif bearish and market.regime in ("risk_off", "volatile"):
                 directives.append(TradeDirective(

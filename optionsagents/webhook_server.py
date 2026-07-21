@@ -76,11 +76,14 @@ if _assets.is_dir():
 
 @app.get("/health")
 def health() -> dict:
+    from tradingagents.llm_clients.api_key_env import llm_status
+
     ps = persistence_status()
     return {
         "status": "ok",
         "users": len(list_users()),
         "persistence": ps,
+        "llm": llm_status(),
     }
 
 

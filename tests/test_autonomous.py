@@ -104,6 +104,9 @@ def test_brain_rules_fallback_selects_bullish_candidate():
     assert not decision.stand_aside
     assert decision.directives[0].ticker == "NVDA"
     assert decision.directives[0].conviction >= 0.55
+    # Without an LLM, swing setups must use buy — not analyze (which needs a key).
+    assert decision.directives[0].signal == "buy"
+    assert decision.directives[0].mode in ("day", "swing")
 
 
 def test_brain_stands_aside_in_sharp_risk_off():

@@ -176,8 +176,9 @@ class UserWorkspace:
         try:
             from tradingagents.default_config import DEFAULT_CONFIG
             from tradingagents.graph.trading_graph import TradingAgentsGraph
+            from tradingagents.llm_clients.api_key_env import resolve_llm_config
 
-            graph = TradingAgentsGraph(config=DEFAULT_CONFIG.copy())
+            graph = TradingAgentsGraph(config=resolve_llm_config(DEFAULT_CONFIG.copy()))
             return StrategyBrain(graph.deep_thinking_llm)
         except Exception as exc:
             logger.warning("LLM unavailable for user %s (%s)", self.user.id, exc)
@@ -314,6 +315,39 @@ class UserWorkspace:
             return pipeline.run_signal(
                 ticker, signal, context=ctx.decision_context, order_ctx=ctx,
             )
+
+        # analyze path: if no LLM key is configured, take the fast directional
+        # route instead of raising during TradingAgentsGraph init.
+        from tradingagents.llm_clients.api_key_env import llm_status
+
+        status = llm_status()
+        if not status["ready"]:
+            hint = (direction_hint or ctx.direction or "").lower()
+            fallback = "sell" if hint == "bearish" else "buy"
+            logger.warning(
+                "LLM not ready (%s); degrading analyze %s -> %s",
+                status["message"], ticker, fallback,
+            )
+            ctx = OrderContext(
+                source=ctx.source,
+                ticker=ctx.ticker,
+                mode=ctx.mode,
+                signal=fallback,
+                source_label=ctx.source_label,
+                source_rationale=ctx.source_rationale,
+                decision_context=(
+                    f"{ctx.decision_context}\n\n"
+                    f"Degraded from analyze — {status['message']}"
+                ).strip(),
+                source_ref=ctx.source_ref,
+                direction=ctx.direction or ("bearish" if fallback == "sell" else "bullish"),
+                conviction=ctx.conviction,
+                rating=ctx.rating,
+            )
+            return pipeline.run_signal(
+                ticker, fallback, context=ctx.decision_context, order_ctx=ctx,
+            )
+
         return pipeline.run(
             ticker, order_ctx=ctx, direction_hint=direction_hint,
         )
@@ -506,6 +540,8 @@ class UserWorkspace:
 
     def scanner_snapshot(self) -> dict:
         """Merged view of both scanning engines for the unified Scanner UI."""
+        from tradingagents.llm_clients.api_key_env import llm_status
+
         signals = self.free_signals.snapshot()
         auto = self.orchestrator.snapshot(broker=self.broker)
         events = sorted(
@@ -533,6 +569,7 @@ class UserWorkspace:
             "swing_scan_time": self.free_signals.config.swing_scan_time,
             "risk": auto.get("risk", {}),
             "events": events,
+            "llm": llm_status(),
         }
 
     def check_positions(self) -> list:

@@ -106,13 +106,18 @@ class OptionsPipeline:
 
     # ---- lazy LLM wiring ----------------------------------------------
 
+    def _resolved_config(self) -> dict:
+        from tradingagents.default_config import DEFAULT_CONFIG
+        from tradingagents.llm_clients.api_key_env import resolve_llm_config
+
+        return resolve_llm_config(self.config or DEFAULT_CONFIG.copy())
+
     def _get_graph(self):
         if self._graph is None:
-            from tradingagents.default_config import DEFAULT_CONFIG
             from tradingagents.graph.trading_graph import TradingAgentsGraph
 
             self._graph = TradingAgentsGraph(
-                debug=self.debug, config=self.config or DEFAULT_CONFIG.copy()
+                debug=self.debug, config=self._resolved_config()
             )
         return self._graph
 
@@ -141,7 +146,34 @@ class OptionsPipeline:
     ) -> PipelineResult:
         """Full research path: multi-agent debate -> rating -> options trade."""
         trade_date = trade_date or date.today().isoformat()
-        graph = self._get_graph()
+        try:
+            graph = self._get_graph()
+        except ValueError as exc:
+            # Missing LLM key (or similar config error): degrade to the fast
+            # path so autonomous/scanner cycles don't die with "AI error".
+            msg = str(exc)
+            if "API key" not in msg and "is not set" not in msg:
+                raise
+            logger.warning(
+                "Full research unavailable for %s (%s); falling back to signal path",
+                ticker, exc,
+            )
+            hint = (direction_hint or (order_ctx.direction if order_ctx else "") or "").lower()
+            signal = "sell" if hint == "bearish" else "buy"
+            context = (
+                (order_ctx.decision_context if order_ctx else "")
+                or f"Degraded from analyze: {exc}"
+            )
+            if "Degraded from analyze" not in context:
+                context = f"{context}\n\nDegraded from analyze: {exc}".strip()
+            result = self.run_signal(
+                ticker, signal, context=context, order_ctx=order_ctx,
+            )
+            result.warnings = [
+                f"Full AI research skipped — {exc}",
+                *result.warnings,
+            ]
+            return result
         final_state, rating = graph.propagate(ticker, trade_date)
         direction = RATING_TO_DIRECTION.get(str(rating).strip().lower(), "neutral")
         decision_context = final_state.get("final_trade_decision", "") or str(rating)

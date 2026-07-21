@@ -52,6 +52,13 @@ Without this, accounts reset on every redeploy.
 | `OPENAI_API_KEY` | your key | Yes (or Anthropic/Google) |
 | `AUTONOMOUS_ENABLED` | `false` | Optional (enable from UI later) |
 
+If the Scanner activity log shows `API key for provider 'openai' is not set`,
+this variable (or `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY`) is missing. Add it
+under **Variables**, redeploy, then confirm `/health` reports `"llm":{"ready":true,...}`.
+
+Without a key the scanner still runs on rule-based buy/sell signals; full
+multi-agent `analyze` research stays paused until a key is present.
+
 Copy the public URL from **Settings → Networking → Generate Domain** if you have not already.
 
 Template: `.env.production.example`
@@ -97,6 +104,7 @@ Each user’s **personal secret** is on the TV tab after sign-in (embedded in th
 | Build fails “Dockerfile not found” | Set Dockerfile path to `Dockerfile.web` |
 | Health check failing | Wait 30s after start; check deploy logs for Python errors |
 | 502 / crash on start | Add LLM API key; check logs for import errors |
+| Scanner `AI error` / `API key for provider 'openai' is not set` | Set `OPENAI_API_KEY` (or Anthropic/Google) in Variables → Redeploy; `/health` → `llm.ready` should be `true` |
 | Sign-in works but data lost on redeploy | Volume at `/data` + `OPTIONS_DATA_DIR=/data` |
 | Have to create a new account every visit | Same as above — DB wiped without volume; check `/health` → `persistence.warning` |
 | Session expired but account exists | Use **Sign in** (not Sign up) with same email; sessions now slide on activity |
